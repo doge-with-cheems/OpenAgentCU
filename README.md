@@ -111,7 +111,7 @@ MCP 客户端配置示例：
     "opencu": {
       "command": "python",
       "args": ["-m", "oacu", "mcp", "serve"],
-      "cwd": "E:\\document\\ai\\working_file\\opencu"
+      "cwd": "C:\\programs file\\opencu"
     }
   }
 }
