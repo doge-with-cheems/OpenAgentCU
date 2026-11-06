@@ -1,0 +1,14 @@
+{
+  "screen": [1920, 1080],
+  "elements": [
+    { "name": "无标题 - 记事本", "control_type": "Window", "rect": [100, 100, 800, 600], "automation_id": "", "class_name": "Notepad", "parent": -1, "depth": 0, "enabled": true, "offscreen": false },
+    { "name": "应用程序", "control_type": "MenuBar", "rect": [100, 130, 800, 30], "automation_id": "MenuBar", "class_name": "MenuBar", "parent": 0, "depth": 1, "enabled": true, "offscreen": false },
+    { "name": "文本编辑器", "control_type": "Edit", "rect": [110, 170, 780, 510], "automation_id": "15", "class_name": "Edit", "parent": 0, "depth": 1, "enabled": true, "offscreen": false },
+    { "name": "状态栏", "control_type": "StatusBar", "rect": [110, 685, 780, 15], "automation_id": "", "class_name": "", "parent": 0, "depth": 1, "enabled": true, "offscreen": false },
+    { "name": "计算器", "control_type": "Window", "rect": [1000, 200, 320, 520], "automation_id": "", "class_name": "ApplicationFrameWindow", "parent": -1, "depth": 0, "enabled": true, "offscreen": false },
+    { "name": "七", "control_type": "Button", "rect": [1020, 300, 60, 60], "automation_id": "num7Button", "class_name": "Button", "parent": 4, "depth": 1, "enabled": true, "offscreen": false },
+    { "name": "等于", "control_type": "Button", "rect": [1200, 560, 60, 60], "automation_id": "equalButton", "class_name": "Button", "parent": 4, "depth": 1, "enabled": true, "offscreen": false },
+    { "name": "", "control_type": "Pane", "rect": [0, 0, 0, 0], "automation_id": "", "class_name": "", "parent": 4, "depth": 1, "enabled": true, "offscreen": false },
+    { "name": "文本编辑器", "control_type": "Edit", "rect": [110, 170, 780, 510], "automation_id": "15", "class_name": "Edit", "parent": 0, "depth": 1, "enabled": true, "offscreen": false }
+  ]
+}
