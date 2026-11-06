@@ -1,7 +1,5 @@
 # OpenAgentCU 1.0.0
 
-首个公开发布，也是最终版。
-
 ## 下载
 
 - `OpenAgentCU-1.0.0-Setup.exe`：Windows 安装版（Program Files，需管理员确认 UAC）
