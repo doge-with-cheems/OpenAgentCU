@@ -7,7 +7,6 @@ Win+R 的直接控制。
 
 零第三方 Python 依赖：UIA 通过 PowerShell 5.1 的
 `System.Windows.Automation` 访问，存储用标准库 `sqlite3`，通信用 `socket`。
-**首个公开发布即 1.0.0 最终版。**
 
 ## 下载
 
@@ -140,21 +139,7 @@ MCP 客户端配置示例：
 | `screen_info` | 虚拟屏幕范围与主屏分辨率 |
 | `mouse_position` | 当前鼠标坐标 |
 
-## 支持的动作
 
-| 指令示例 | 动作 |
-| --- | --- |
-| `打开 chrome` / `启动 记事本` | 启动应用（ShellExecute，内置常见应用别名） |
-| `打开 youtube` / `打开 https://...` | 打开网址 |
-| `搜索 爱泼斯坦 资料` | 打开 Google 搜索结果 |
-| `点击「开始」` / `双击 七` / `右键 桌面` | UIA token 点击 |
-| `在文本编辑器输入你好` | ValuePattern 写入；不支持时点击后 SendInput 输入 |
-| `输入 chrome` | 向当前焦点输入文本（SendInput Unicode） |
-| `按键 win` / `按 win+r` / `按 ctrl+shift+esc` | 特殊键与组合键（WinR 等同 win+r） |
-| `oacu input winrun notepad` / `win_run` | Win+R → 输入命令 → 回车 |
-| `向下滚动 3 次` | 滚动 |
-| `等待 2 秒` | 等待 |
-| `激活 计算器` | 前置窗口 |
 
 ## 组合键
 
@@ -199,13 +184,7 @@ win       单独 Win 键
 
 ### 为什么 75 次调用会烧掉 ~1M token
 
-按你提供的日志统计：75 次工具调用，工具结果合计约 13 万字符，但**每一轮都会把之前所有结果重新发给模型**，累计约 630 万字符（≈180 万 token；按不同 tokenizer/缓存口径，账单显示 100 万很正常）。其中：
-
-- `desktop_scan` 6 次，单次约 1.9 万字符（≈5.6k token）；
-- `desktop_find` 34 次、按键 17 次、文本 8 次，都是因为 0.2.1 只把摘要放进 `content.text`，元素表在 `structuredContent`，Chatbox 没把它给模型，模型只能“盲操作”并反复试探；
-- 每次调用都会把历史结果再算一遍，**调用次数比单次大小更致命**。
-
-1.0.0 起：元素表直接放进模型可见的 `content.text`，不再返回 `structuredContent`；`desktop_scan` 默认只回前 80 行并过滤无名容器；新增 `launch_app/open_url/search_web/win_run` 零扫描工具；`win+r`、`ctrl+shift+esc`、`alt+tab` 等组合键统一解析。**换新会话执行任务**（不要把几十轮工具历史一直带着）同样关键。
+按测试的日志统计：75 次工具调用，工具结果合计约 13 万字符，但**每一轮都会把之前所有结果重新发给模型**，累计约 630 万字符（≈180 万 token；按不同 tokenizer/缓存口径，账单显示 100 万很正常）。
 
 ### 平均任务消耗
 
@@ -215,8 +194,6 @@ win       单独 Win 键
 - 简单任务约 20k–30k；复杂任务约 60k–80k
 - 旧版同任务约 1M token
 - 单次 `desktop_scan` ≈720 token，`desktop_find` ≈31 token
-
-详见 [`docs/token-benchmark.md`](docs/token-benchmark.md)。实际账单还取决于客户端是否重发历史、是否计入思考 token 与缓存策略。
 
 ## 目录
 
