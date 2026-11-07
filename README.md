@@ -8,15 +8,6 @@ Win+R 的直接控制。
 零第三方 Python 依赖：UIA 通过 PowerShell 5.1 的
 `System.Windows.Automation` 访问，存储用标准库 `sqlite3`，通信用 `socket`。
 
-## 下载
-
-- [Windows 安装包（Setup.exe）](https://github.com/doge-with-cheems/OpenAgentCU/releases/latest)
-- [便携版 ZIP](https://github.com/doge-with-cheems/OpenAgentCU/releases/latest)
-- [源代码 ZIP](https://github.com/doge-with-cheems/OpenAgentCU/releases/latest)
-
-> 安装包未签名，Windows SmartScreen 可能提示“未知发布者”；介意时使用便携版。
-> 支持 Windows 10/11 x64，不需要单独安装 Python。
-
 ## 能力概览
 
 - 桌面 UIA 采集 → 去噪 → 阅读顺序 → 紧凑 token 表
@@ -33,18 +24,6 @@ Win+R 的直接控制。
 - Windows 10/11 x64
 - Python 3.10+
 - PowerShell 5.1（自带）
-
-自检：
-
-```powershell
-python -m oacu doctor
-```
-
-## 图形界面
-
-```powershell
-python -m oacu gui
-```
 
 五个页签：**桌面快照**（采集 + token 列表 + 组件详情）、**指令执行**（计划 / IR /
 预演 / 执行 / 日志）、**运行记录**（actions 审计）、**MCP / 设置**（环境状态、
@@ -165,31 +144,14 @@ win       单独 Win 键
 
 - `desktop_scan` 直接返回 **`content.text` 里的紧凑表**（Chatbox 只读这个字段），格式 `id|name|type|x|y|w|h|win`。
 - 默认过滤无名 `Pane/Group/Custom` 容器，只回前 **80 行**；头部显示 `shown: 80/N`。
-- 不再返回 `structuredContent`，避免与 `content.text` 双份。
 - `desktop_tokens` 默认只回 20 条，支持 `offset`；不再返回全文 `text`。
 - `desktop_find` 只返回匹配元素，适合“找搜索框/视频/按钮”这类操作。
 - `desktop_scan` 支持 `diff=true`，只返回新增/删除。
 - `launch_app` / `open_url` / `search_web` / `win_run` **完全不扫描桌面**。
 - `computer_act` 默认只回 `{ok,status,steps,results}`；计划/IR 需要 `verbose=true`。
 
-实测一个 363 token 的桌面（字符数按 ~3.5 字符/token 估算）：
-
-| 调用 | 旧格式 | 新格式 | 降幅 |
-| --- | --- | --- | --- |
-| `desktop_scan` | ~26,059 tok | ~4,558 tok | **-82.5%** |
-| `desktop_tokens` | ~48,718 tok | ~4,569 tok | **-90.6%** |
-| `computer_act` | ~402 tok | ~91 tok | **-77.3%** |
-
-日常操作优先用 `desktop_find`（只回匹配行）或 `desktop_scan(diff=true)`，不要反复拉全量快照。
-
-### 为什么 75 次调用会烧掉 ~1M token
-
-按测试的日志统计：75 次工具调用，工具结果合计约 13 万字符，但**每一轮都会把之前所有结果重新发给模型**，累计约 630 万字符（≈180 万 token；按不同 tokenizer/缓存口径，账单显示 100 万很正常）。
-
 ### 平均任务消耗
-
 按 1.0.0 的实测载荷与典型 13 次工具调用估算：
-
 - **平均约 45k token/任务**（38k–50k）
 - 简单任务约 20k–30k；复杂任务约 60k–80k
 - 旧版同任务约 1M token
@@ -225,21 +187,6 @@ tools/
 tests/              138 个单元测试（含 GUI 线程交互与输入校验）
 ```
 
-## 验收
-
-```powershell
-python -m unittest discover -s tests -v     # G1
-python tools\smoke_cli.py                   # G2 -> cli 9/9
-python tools\flow_check.py                  # G3 -> e2e 12/12
-python tools\mcp_probe.py                   # G4 -> mcp 4/4
-python tools\gui_probe.py                   # GUI -> gui 5/5
-```
-
-## 打包
-
-```powershell
-powershell -ExecutionPolicy Bypass -File packaging\build.ps1
-```
 
 产物：
 
