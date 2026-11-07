@@ -1,15 +1,4 @@
 # OpenAgentCU 1.0.0
-
-## 下载
-
-- `OpenAgentCU-1.0.0-Setup.exe`：Windows 安装版（Program Files，需管理员确认 UAC）
-- `OpenAgentCU-1.0.0-portable.zip`：便携版，解压即用
-- `OpenAgentCU-1.0.0-source.zip`：完整源代码
-
-安装包未做代码签名，SmartScreen 可能提示“未知发布者”。
-
-## 亮点
-
 - 基于 Windows UI Automation 的桌面感知与元素 token 化
 - MCP stdio 服务（18 个工具），可被 Chatbox/Claude 等客户端调用
 - 鼠标移动/点击/双击/右键/拖拽/滚轮
@@ -27,7 +16,6 @@
 - 旧版 Epstein 75 次调用任务约 1M token
 - 单次 `desktop_scan` ≈720 token；`desktop_find` ≈31 token
 
-详细测量与口径见 [`docs/token-benchmark.md`](docs/token-benchmark.md)。
 
 ## 环境
 
@@ -36,8 +24,6 @@
 - 安装版不需要单独安装 Python；源码运行需要 Python 3.10+
 
 ## 已知限制
-
-- 安装包未签名。
 - `Ctrl+Alt+Delete` 属于 Windows 安全注意序列，普通程序无法模拟。
 - UIA 对部分应用（如某些 Electron/游戏/视频播放器）暴露的控件有限；播放/暂停状态可能无法读取。
 - 自然语言规划器是规则匹配，不调用 LLM；复杂指令建议使用原子键鼠工具组合。
