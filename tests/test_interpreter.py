@@ -85,10 +85,10 @@ class InterpreterTests(unittest.TestCase):
         self.assertEqual([r["op"] for r in results], [s["op"] for s in steps])
         self.assertTrue(all(r["ok"] for r in results), results)
         mouse_ops = [c[1] for c in calls if c[0] == "mouse"]
-        self.assertEqual(mouse_ops, ["click", "double_click", "right_click"])
+        self.assertEqual(mouse_ops, ["double_click", "right_click"])
         self.assertIn(("key", "{ENTER}", 0.6), calls)
         pattern_ops = [c[1] for c in calls if c[0] == "pattern"]
-        self.assertEqual(pattern_ops, ["invoke", "set_value", "scroll", "activate"])
+        self.assertEqual(pattern_ops, ["invoke", "set_value", "click", "scroll", "activate"])
 
     def test_out_of_order_steps_are_sorted(self) -> None:
         steps = [
@@ -100,7 +100,7 @@ class InterpreterTests(unittest.TestCase):
         results = execute(self.ir(steps), store=self.store, settings=self.settings,
                           backends=make_backends(now, calls))
         self.assertEqual([r["op"] for r in results], ["invoke", "click"])
-        self.assertEqual([c[1] for c in calls if c[0] == "mouse"], ["click"])
+        self.assertEqual([c[1] for c in calls if c[0] == "mouse"], [])
         self.assertGreaterEqual(now[0], 0.5)
 
     def test_stale_token_stops_execution(self) -> None:

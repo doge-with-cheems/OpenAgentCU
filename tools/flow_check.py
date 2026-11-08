@@ -65,7 +65,7 @@ def main() -> int:
                 calls.append(("key", keys, round(now[0], 3)))
 
             def pattern(spec):
-                return {"ok": True}
+                return {"ok": False, "code": "pattern_unavailable"}
 
             backends = Backends(mouse=mouse, key=key, pattern=pattern,
                                 sleep=sleep, clock=lambda: now[0])

@@ -1,7 +1,7 @@
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(1, 0, 0, 0),
-    prodvers=(1, 0, 0, 0),
+    filevers=(2, 0, 0, 0),
+    prodvers=(2, 0, 0, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -14,10 +14,10 @@ VSVersionInfo(
       StringTable('040904B0', [
         StringStruct('CompanyName', 'OpenAgentCU'),
         StringStruct('FileDescription', 'OpenAgentCU - Windows desktop agent bridge'),
-        StringStruct('FileVersion', '1.0.0.0'),
+        StringStruct('FileVersion', '2.0.0.0'),
         StringStruct('InternalName', 'OpenAgentCU'),
         StringStruct('ProductName', 'OpenAgentCU'),
-        StringStruct('ProductVersion', '1.0.0')
+        StringStruct('ProductVersion', '2.0.0')
       ])
     ]),
     VarFileInfo([VarStruct('Translation', [1033, 1200])])

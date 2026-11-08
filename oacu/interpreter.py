@@ -15,20 +15,11 @@ from typing import Any, Callable
 
 from .config import Settings
 from .models import Token
-from .keys import MOD_ORDER, MOD_VK, parse_keys
+from .keys import parse_keys
 from .store import Store
 
 TOOLS_DIR = Path(__file__).resolve().parents[1] / "tools"
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-KEYEVENTF_KEYUP = 0x0002
-
-MOUSEEVENTF_LEFTDOWN = 0x0002
-MOUSEEVENTF_LEFTUP = 0x0004
-MOUSEEVENTF_RIGHTDOWN = 0x0008
-MOUSEEVENTF_RIGHTUP = 0x0010
-MOUSEEVENTF_WHEEL = 0x0800
-MOUSEEVENTF_HWHEEL = 0x01000
-
 
 def _noop_text(_text: str) -> None:
     return None
@@ -50,51 +41,10 @@ class Backends:
     open_url: Callable[[str], str] = _noop_launch
 
 
-class _KEYBDINPUT(ctypes.Structure):
-    _fields_ = [
-        ("wVk", ctypes.c_ushort),
-        ("wScan", ctypes.c_ushort),
-        ("dwFlags", ctypes.c_ulong),
-        ("time", ctypes.c_ulong),
-        ("dwExtraInfo", ctypes.c_void_p),
-    ]
-
-
-class _MOUSEINPUT(ctypes.Structure):
-    _fields_ = [
-        ("dx", ctypes.c_long),
-        ("dy", ctypes.c_long),
-        ("mouseData", ctypes.c_ulong),
-        ("dwFlags", ctypes.c_ulong),
-        ("time", ctypes.c_ulong),
-        ("dwExtraInfo", ctypes.c_void_p),
-    ]
-
-
-class _INPUTUNION(ctypes.Union):
-    _fields_ = [("ki", _KEYBDINPUT), ("mi", _MOUSEINPUT)]
-
-
-class _INPUT(ctypes.Structure):
-    _anonymous_ = ("u",)
-    _fields_ = [("type", ctypes.c_ulong), ("u", _INPUTUNION)]
-
-
 def _send_text(text: str) -> None:
-    """Type arbitrary Unicode text into the focused control."""
-    user32 = ctypes.windll.user32
-    size = ctypes.sizeof(_INPUT)
-    data = (text or "").encode("utf-16-le")
-    for offset in range(0, len(data), 2):
-        unit = data[offset] | (data[offset + 1] << 8)
-        if unit in (0x000A, 0x000D):
-            unit = 0x000D
-        for flags in (0x0004, 0x0004 | 0x0002):
-            item = _INPUT(type=1)
-            item.u.ki = _KEYBDINPUT(wVk=0, wScan=unit, dwFlags=flags, time=0, dwExtraInfo=None)
-            user32.SendInput(1, ctypes.byref(item), size)
-            if flags == 0x0004:
-                time.sleep(0.002)
+    from . import virtual
+
+    virtual.type_text(text)
 
 
 class StepError(RuntimeError):
@@ -104,16 +54,9 @@ class StepError(RuntimeError):
 
 
 def _send_keys(keys: str) -> None:
-    user32 = ctypes.windll.user32
-    for vk, mods in parse_keys(keys):
-        for name in MOD_ORDER:
-            if name in mods:
-                user32.keybd_event(MOD_VK[name], 0, 0, 0)
-        user32.keybd_event(vk, 0, 0, 0)
-        user32.keybd_event(vk, 0, KEYEVENTF_KEYUP, 0)
-        for name in reversed(MOD_ORDER):
-            if name in mods:
-                user32.keybd_event(MOD_VK[name], 0, KEYEVENTF_KEYUP, 0)
+    from . import virtual
+
+    virtual.key_press(keys)
 
 
 send_keys = _send_keys
@@ -121,25 +64,24 @@ send_text = _send_text
 
 
 def _mouse(op: str, x: int, y: int, times: int = 1) -> None:
-    user32 = ctypes.windll.user32
-    user32.SetCursorPos(int(x), int(y))
-    if op in ("click", "double_click", "right_click"):
-        down, up = (MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP) if op == "right_click" else (
-            MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP)
-        count = 2 if op == "double_click" else 1
-        for _ in range(count):
-            user32.mouse_event(down, 0, 0, 0, 0)
-            user32.mouse_event(up, 0, 0, 0, 0)
-            if count > 1:
-                time.sleep(0.05)
-        return
-    if op in ("scroll_down", "scroll_up"):
-        delta = -120 * max(1, times) if op == "scroll_down" else 120 * max(1, times)
-        user32.mouse_event(MOUSEEVENTF_WHEEL, 0, 0, delta, 0)
-        return
-    if op in ("scroll_right", "scroll_left"):
-        delta = 120 * max(1, times) if op == "scroll_right" else -120 * max(1, times)
-        user32.mouse_event(MOUSEEVENTF_HWHEEL, 0, 0, delta, 0)
+    from . import virtual
+
+    if op == "click":
+        virtual.click(x, y, "left", 1)
+    elif op == "double_click":
+        virtual.click(x, y, "left", 2)
+    elif op == "right_click":
+        virtual.click(x, y, "right", 1)
+    elif op == "scroll_up":
+        virtual.scroll(x, y, max(1, times), 0)
+    elif op == "scroll_down":
+        virtual.scroll(x, y, -max(1, times), 0)
+    elif op == "scroll_right":
+        virtual.scroll(x, y, 0, max(1, times))
+    elif op == "scroll_left":
+        virtual.scroll(x, y, 0, -max(1, times))
+    else:
+        raise StepError("bad_mouse_op", op)
 
 
 def _run_uia_act(spec: dict[str, Any], timeout: float = 6.0) -> dict[str, Any]:
@@ -345,8 +287,13 @@ def execute(
             if op == "wait":
                 backends.sleep(int(step.get("ms", 0)) / 1000.0)
             elif op in ("click", "double_click", "right_click"):
-                x, y = _coords(step, token)
-                backends.mouse(op, x, y, 1)
+                used_pattern = False
+                if op == "click" and token is not None:
+                    response = backends.pattern(_spec_for(step, token))
+                    used_pattern = bool(response.get("ok"))
+                if not used_pattern:
+                    x, y = _coords(step, token)
+                    backends.mouse(op, x, y, 1)
             elif op in ("invoke", "set_value", "activate"):
                 response = backends.pattern(_spec_for(step, token))
                 if not response.get("ok"):

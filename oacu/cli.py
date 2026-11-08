@@ -145,7 +145,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_type.add_argument("text")
     p_type.set_defaults(func=cmd_input)
 
-    p_winrun = input_sub.add_parser("winrun", parents=[common], help="Win+R, type a command, press Enter")
+    p_winrun = input_sub.add_parser("winrun", parents=[common], help="ShellExecute app/path/URL (virtual Win+R replacement)")
     p_winrun.add_argument("command")
     p_winrun.add_argument("--wait-ms", type=int, default=350)
     p_winrun.set_defaults(func=cmd_input)
@@ -521,7 +521,7 @@ def cmd_input(args: argparse.Namespace, settings: Settings) -> int:
         summary = f"typed {payload['chars']} chars"
     elif action == "winrun":
         payload = input_mod.win_run(args.command, args.wait_ms)
-        summary = f"Win+R: {payload['command']}"
+        summary = f"virtual launch: {payload['command']}"
     else:
         from .errors import UsageError
 

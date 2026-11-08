@@ -1,10 +1,23 @@
-# OpenAgentCU 1.0.0
+# OpenAgentCU 2.0.0
+
+2.0.0：默认改为虚拟指针与定向 UIA/窗口消息，不移动系统光标、不注入全局键鼠。
+
+## 下载
+
+- `OpenAgentCU-2.0.0-Setup.exe`：Windows 安装版（Program Files，需管理员确认 UAC）
+- `OpenAgentCU-2.0.0-portable.zip`：便携版，解压即用
+- `OpenAgentCU-2.0.0-source.zip`：完整源代码
+
+安装包未做代码签名，SmartScreen 可能提示“未知发布者”。
+
+## 亮点
 - 基于 Windows UI Automation 的桌面感知与元素 token 化
 - MCP stdio 服务（18 个工具），可被 Chatbox/Claude 等客户端调用
-- 鼠标移动/点击/双击/右键/拖拽/滚轮
-- 键盘文本输入、单键、组合键、长按
-- Win+R：`win_run` 或 `oacu input winrun <command>`
-- 组合键：`win+r`、`winr`、`ctrl+shift+esc`、`alt+tab`、`alt+f4`、`^s`、`%{F4}`
+- **虚拟指针**：不移动系统光标、不注入全局键鼠；UIA pattern + 定向窗口消息
+- 虚拟鼠标：移动/点击/双击/右键/拖拽/滚轮，附带可见的点击环
+- 键盘：UIA ValuePattern / 定向 WM_CHAR / WM_KEYDOWN；应用级组合键
+- 系统键（Win/Alt+Tab/Alt+F4/Ctrl+Shift+Esc）明确拒绝，避免接管用户输入
+- 虚拟 Win+R 替代：`win_run` / `oacu input winrun`（ShellExecute 启动应用/路径/URL）
 - 零扫描动作：`launch_app`、`open_url`、`search_web`、`win_run`
 - tkinter GUI：快照 / 指令 / 记录 / MCP / 输入控制
 - MCP token 优化：紧凑表、过滤无名容器、默认 80 行、find/diff/分页

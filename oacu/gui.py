@@ -500,7 +500,7 @@ class GuiApp:
                                          state="disabled")
         self.execute_button.pack(side="left")
         self.allow_execute = tk.BooleanVar(value=False)
-        tk.Checkbutton(buttons, text="我确认执行会真实操作鼠标/键盘", variable=self.allow_execute,
+        tk.Checkbutton(buttons, text="我确认执行会操作桌面元素", variable=self.allow_execute,
                        bg=C["card"], fg=C["muted"], activebackground=C["card"],
                        font=(FONT, 9), command=self._refresh_button_state).pack(side="left", padx=12)
         tk.Label(buttons, text="示例：点击七 · 在文本编辑器输入你好 · 按键回车",
@@ -588,7 +588,7 @@ class GuiApp:
         if not text:
             return
         if not dry_run and not self.allow_execute.get():
-            messagebox.showwarning("未授权执行", "请先勾选“我确认执行会真实操作鼠标/键盘”。")
+            messagebox.showwarning("未授权执行", "请先勾选“我确认执行会操作桌面元素”。")
             return
         settings = self.settings
         window = self.window_var.get().strip() or None
@@ -728,7 +728,7 @@ class GuiApp:
         ttk.Button(inner, text="刷新", command=self.refresh_input_status).pack(side="left")
         ttk.Button(inner, text="拾取鼠标位置", command=self.pick_mouse).pack(side="left", padx=8)
         self.allow_input = tk.BooleanVar(value=False)
-        tk.Checkbutton(inner, text="允许真实键鼠输入", variable=self.allow_input,
+        tk.Checkbutton(inner, text="启用虚拟指针操作", variable=self.allow_input,
                        bg=C["card"], fg=C["err"], activebackground=C["card"],
                        font=(FONT, 9), command=self._refresh_input_state).pack(side="right")
 
@@ -841,7 +841,7 @@ class GuiApp:
 
     def _run_input(self, label: str, action) -> None:
         if not self.allow_input.get():
-            self._input_log_line("请先勾选“允许真实键鼠输入”", "err")
+            self._input_log_line("请先勾选“启用虚拟指针操作”", "err")
             return
         try:
             result = action()

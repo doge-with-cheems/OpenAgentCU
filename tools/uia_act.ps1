@@ -24,6 +24,7 @@ function Get-Rect($el) {
 try {
     Add-Type -AssemblyName UIAutomationClient
     Add-Type -AssemblyName UIAutomationTypes
+    Add-Type -AssemblyName WindowsBase
     Add-Type -ErrorAction SilentlyContinue @"
 using System;
 using System.Runtime.InteropServices;
@@ -36,6 +37,81 @@ public class Win32Oacu {
     $spec = Get-Content -Raw -Encoding UTF8 $SpecFile | ConvertFrom-Json
     $match = $spec.match
     $op = [string]$spec.op
+
+    if ($op -eq "focused_set_value") {
+        $focused = [System.Windows.Automation.AutomationElement]::FocusedElement
+        $hwnd = 0
+        if ($null -ne $focused) {
+            try { $hwnd = [int]$focused.Current.NativeWindowHandle } catch { $hwnd = 0 }
+            $pattern = $null
+            if ($focused.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$pattern)) {
+                $pattern.SetValue([string]$spec.value)
+                Write-Payload (@{ ok = $true; method = "FocusedValuePattern"; hwnd = $hwnd } | ConvertTo-Json -Compress)
+                exit 0
+            }
+        }
+        Write-Payload (@{ ok = $false; error = "pattern_unavailable"; code = "pattern_unavailable"; hwnd = $hwnd } | ConvertTo-Json -Compress)
+        exit 0
+    }
+
+    if ($op -eq "set_value_point") {
+        $p = $spec.point
+        try {
+            $point = [System.Windows.Point]::new([double]$p[0], [double]$p[1])
+            $element = [System.Windows.Automation.AutomationElement]::FromPoint($point)
+            if ($null -ne $element) {
+                $hwnd = 0
+                try { $hwnd = [int]$element.Current.NativeWindowHandle } catch { $hwnd = 0 }
+                $pattern = $null
+                if ($element.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$pattern)) {
+                    $pattern.SetValue([string]$spec.value)
+                    Write-Payload (@{ ok = $true; method = "PointValuePattern"; hwnd = $hwnd } | ConvertTo-Json -Compress)
+                    exit 0
+                }
+                Write-Payload (@{ ok = $false; error = "pattern_unavailable"; code = "pattern_unavailable"; hwnd = $hwnd } | ConvertTo-Json -Compress)
+                exit 0
+            }
+        }
+        catch { }
+        Write-Payload (@{ ok = $false; error = "element_not_found"; code = "element_not_found" } | ConvertTo-Json -Compress)
+        exit 0
+    }
+
+    if ($op -eq "focus_point") {
+        $p = $spec.point
+        try {
+            $point = [System.Windows.Point]::new([double]$p[0], [double]$p[1])
+            $element = [System.Windows.Automation.AutomationElement]::FromPoint($point)
+            if ($null -ne $element) {
+                $element.SetFocus()
+                $hwnd = 0
+                try { $hwnd = [int]$element.Current.NativeWindowHandle } catch { $hwnd = 0 }
+                $invoked = $false
+                $pattern = $null
+                try {
+                    if ($element.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$pattern)) {
+                        $pattern.Invoke()
+                        $invoked = $true
+                    }
+                    elseif ($element.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$pattern)) {
+                        $pattern.Select()
+                        $invoked = $true
+                    }
+                    elseif ($element.TryGetCurrentPattern([System.Windows.Automation.LegacyIAccessiblePattern]::Pattern, [ref]$pattern)) {
+                        $pattern.DoDefaultAction()
+                        $invoked = $true
+                    }
+                }
+                catch { }
+                Write-Payload (@{ ok = $true; method = "FromPoint+SetFocus"; hwnd = $hwnd; invoked = $invoked } | ConvertTo-Json -Compress)
+                exit 0
+            }
+        }
+        catch { }
+        Write-Payload (@{ ok = $false; error = "element_not_found"; code = "element_not_found" } | ConvertTo-Json -Compress)
+        exit 0
+    }
+
     $root = [System.Windows.Automation.AutomationElement]::RootElement
     $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
 
@@ -127,6 +203,39 @@ public class Win32Oacu {
     if ($times -lt 1) { $times = 1 }
 
     switch ($op) {
+        "click" {
+            $done = $false
+            $method = ""
+            $pattern = $null
+            foreach ($candidate in @(
+                    @{ Pattern = [System.Windows.Automation.InvokePattern]::Pattern; Action = "Invoke" },
+                    @{ Pattern = [System.Windows.Automation.SelectionItemPattern]::Pattern; Action = "Select" },
+                    @{ Pattern = [System.Windows.Automation.ExpandCollapsePattern]::Pattern; Action = "Expand" },
+                    @{ Pattern = [System.Windows.Automation.TogglePattern]::Pattern; Action = "Toggle" },
+                    @{ Pattern = [System.Windows.Automation.LegacyIAccessiblePattern]::Pattern; Action = "DoDefaultAction" }
+                )) {
+                if ($done) { break }
+                $pattern = $null
+                try {
+                    if ($el.TryGetCurrentPattern($candidate.Pattern, [ref]$pattern)) {
+                        switch ($candidate.Action) {
+                            "Invoke" { $pattern.Invoke() }
+                            "Select" { $pattern.Select() }
+                            "Expand" { $pattern.Expand() }
+                            "Toggle" { $pattern.Toggle() }
+                            "DoDefaultAction" { $pattern.DoDefaultAction() }
+                        }
+                        $done = $true
+                        $method = $candidate.Action
+                    }
+                }
+                catch { }
+            }
+            if (-not $done) {
+                Write-Payload (@{ ok = $false; error = "pattern_unavailable"; code = "pattern_unavailable" } | ConvertTo-Json -Compress)
+                exit 0
+            }
+        }
         "invoke" {
             $pattern = $null
             if ($el.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$pattern)) {

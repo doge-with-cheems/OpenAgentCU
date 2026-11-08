@@ -93,7 +93,7 @@ def tool_definitions() -> list[dict[str, Any]]:
         },
         {
             "name": "win_run",
-            "description": "Open Win+R, type a command and press Enter (no desktop scan needed).",
+            "description": "Virtual Win+R replacement: launch an app/path/URL via ShellExecute (no keyboard).",
             "inputSchema": _schema({
                 "command": {"type": "string"},
                 "wait_ms": {"type": "integer", "minimum": 0, "default": 350},
@@ -113,7 +113,7 @@ def tool_definitions() -> list[dict[str, Any]]:
         },
         {
             "name": "mouse_move",
-            "description": "Move the mouse cursor to absolute virtual-screen coordinates.",
+            "description": "Move the virtual pointer (system cursor is not moved).",
             "inputSchema": _schema({
                 "x": {"type": "integer"},
                 "y": {"type": "integer"},
@@ -122,7 +122,7 @@ def tool_definitions() -> list[dict[str, Any]]:
         },
         {
             "name": "mouse_click",
-            "description": "Click the mouse at coordinates (or at the current position).",
+            "description": "Click at coordinates via targeted window messages (virtual pointer; system cursor is not moved).",
             "inputSchema": _schema({
                 "x": {"type": "integer"},
                 "y": {"type": "integer"},
@@ -133,7 +133,7 @@ def tool_definitions() -> list[dict[str, Any]]:
         },
         {
             "name": "mouse_drag",
-            "description": "Press a mouse button at the start point, move to the end point and release.",
+            "description": "Virtual drag via targeted window messages (system cursor is not moved).",
             "inputSchema": _schema({
                 "from_x": {"type": "integer"},
                 "from_y": {"type": "integer"},
@@ -145,7 +145,7 @@ def tool_definitions() -> list[dict[str, Any]]:
         },
         {
             "name": "mouse_scroll",
-            "description": "Scroll the wheel at coordinates (or at the current position).",
+            "description": "Virtual wheel via targeted window messages (system cursor is not moved).",
             "inputSchema": _schema({
                 "x": {"type": "integer"},
                 "y": {"type": "integer"},
@@ -155,14 +155,14 @@ def tool_definitions() -> list[dict[str, Any]]:
         },
         {
             "name": "key_press",
-            "description": "Press and release keys, e.g. 'win', 'ctrl+s', 'enter'.",
+            "description": "Send keys to the focused window via targeted messages. System Win/Alt+Tab/Ctrl+Shift+Esc are rejected.",
             "inputSchema": _schema({
                 "keys": {"type": "string"},
             }, required=["keys"]),
         },
         {
             "name": "key_hold",
-            "description": "Hold keys for a duration, then release.",
+            "description": "Hold keys on the focused window via targeted messages (virtual).",
             "inputSchema": _schema({
                 "keys": {"type": "string"},
                 "ms": {"type": "integer", "minimum": 0, "default": 500},
@@ -170,7 +170,7 @@ def tool_definitions() -> list[dict[str, Any]]:
         },
         {
             "name": "type_text",
-            "description": "Type Unicode text into the currently focused control.",
+            "description": "Type into the focused control via UIA ValuePattern or targeted WM_CHAR (no physical keyboard).",
             "inputSchema": _schema({
                 "text": {"type": "string"},
             }, required=["text"]),

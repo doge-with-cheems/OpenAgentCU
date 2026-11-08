@@ -2,19 +2,30 @@
 
 Windows 桌面感知 + UIA 操作桥。把当前桌面控件树整理成
 `{[组件名][组件类型][坐标][关联]}` token 快照，再把自然语言指令编译成带时序的
-IR，交给本地解释器按序操作 UI Automation 元素；同时提供鼠标、键盘、组合键和
-Win+R 的直接控制。
+IR，交给本地解释器按序操作 UI Automation 元素。默认使用**虚拟指针**：
+通过 UIA pattern、`SetFocus` 和定向窗口消息操作，**不移动系统光标、不注入
+全局键盘/鼠标事件**，不会接管用户正在使用的键鼠。
 
 零第三方 Python 依赖：UIA 通过 PowerShell 5.1 的
 `System.Windows.Automation` 访问，存储用标准库 `sqlite3`，通信用 `socket`。
+**当前版本 2.0.0：默认虚拟指针，不接管用户键鼠。**
+
+## 下载
+
+- [Windows 安装包（Setup.exe）](https://github.com/doge-with-cheems/OpenAgentCU/releases/latest)
+- [便携版 ZIP](https://github.com/doge-with-cheems/OpenAgentCU/releases/latest)
+- [源代码 ZIP](https://github.com/doge-with-cheems/OpenAgentCU/releases/latest)
+
+> 安装包未签名，Windows SmartScreen 可能提示“未知发布者”；介意时使用便携版。
+> 支持 Windows 10/11 x64，不需要单独安装 Python。
 
 ## 能力概览
 
 - 桌面 UIA 采集 → 去噪 → 阅读顺序 → 紧凑 token 表
 - MCP stdio 服务：`desktop_scan/tokens/find/summary`、`computer_act`
-- 鼠标：移动、点击、双击、右键、拖拽、滚轮
-- 键盘：文本输入、单键、组合键（`win+r`、`ctrl+shift+esc`、`alt+tab`…）、长按
-- Win+R：`win_run` / `oacu input winrun <command>`
+- 虚拟指针：移动、点击、双击、右键、拖拽、滚轮（系统光标不动）
+- 键盘：UIA ValuePattern / 定向 `WM_CHAR` / `WM_KEYDOWN`，不注入全局键鼠
+- Win+R 替代：`win_run` / `oacu input winrun <command>`（ShellExecute 启动应用/路径/URL）
 - 零扫描动作：`launch_app`、`open_url`、`search_web`、`win_run`
 - GUI 五个页签：快照 / 指令 / 记录 / MCP / 输入控制
 - 针对 MCP token 优化：元素表放 `content.text`、过滤无名容器、默认 80 行、find/diff/分页
@@ -27,8 +38,8 @@ Win+R 的直接控制。
 
 五个页签：**桌面快照**（采集 + token 列表 + 组件详情）、**指令执行**（计划 / IR /
 预演 / 执行 / 日志）、**运行记录**（actions 审计）、**MCP / 设置**（环境状态、
-MCP 配置一键复制）、**输入控制**（鼠标移动/点击/拖拽/滚轮、按键、文本输入）。
-执行与键鼠按钮默认禁用，勾选对应授权后才可用。
+MCP 配置一键复制）、**输入控制**（虚拟指针移动/点击/拖拽/滚轮、按键、文本输入）。
+执行与虚拟指针按钮默认禁用，勾选对应授权后才可用。
 
 `--tab 0..4` 可直接打开指定页；`--self-test` 用于无交互自检（打印 `gui 5/5`）。
 
@@ -53,7 +64,7 @@ python -m oacu plan "在文本编辑器输入你好然后按键回车"
 # 4. 真正执行（进程内）
 python -m oacu act "点击七" --inproc
 
-# 5. 直接键鼠控制
+# 5. 虚拟指针控制（不移动系统光标）
 python -m oacu input screen
 python -m oacu input pos
 python -m oacu input move --x 800 --y 500 --duration-ms 200
@@ -62,8 +73,6 @@ python -m oacu input drag --from-x 100 --from-y 100 --to-x 600 --to-y 400
 python -m oacu input scroll --dy -3
 python -m oacu input key --press "ctrl+s"
 python -m oacu input key --hold shift --ms 800
-python -m oacu input key --press "win+r"
-python -m oacu input key --press "ctrl+shift+esc"
 python -m oacu input type "hello"
 python -m oacu input winrun notepad
 
@@ -106,39 +115,72 @@ MCP 客户端配置示例：
 | `launch_app` | 按名称启动应用（零扫描） |
 | `open_url` | 打开 URL（零扫描） |
 | `search_web` | 打开 Google/Bing/YouTube 搜索结果（零扫描） |
-| `win_run` | Win+R → 输入命令 → 回车（零扫描） |
-| `computer_act` | 单轮：计划 → IR → 执行（默认只回状态，`verbose=true` 才回计划/IR） |
-| `mouse_move` | 鼠标移动到绝对坐标 |
-| `mouse_click` | 左/右/中键单击、多次点击 |
-| `mouse_drag` | 按住拖拽到目标坐标 |
-| `mouse_scroll` | 垂直/水平滚轮 |
-| `key_press` | 按键/组合键（win、ctrl+s、enter…） |
-| `key_hold` | 按住指定时长 |
-| `type_text` | 向当前焦点输入 Unicode 文本 |
+| `win_run` | 虚拟 Win+R 替代：ShellExecute 启动应用/路径/URL（零扫描） |
+| `computer_act` | 单轮：计划 → IR → 虚拟执行（默认只回状态，`verbose=true` 才回计划/IR） |
+| `mouse_move` | 移动虚拟指针（系统光标不动） |
+| `mouse_click` | 定向消息点击（UIA pattern / 窗口消息） |
+| `mouse_drag` | 虚拟拖拽（系统光标不动） |
+| `mouse_scroll` | 定向滚轮消息 |
+| `key_press` | 定向按键；系统 Win/Alt+Tab/Ctrl+Shift+Esc 被拒绝 |
+| `key_hold` | 定向按住指定时长 |
+| `type_text` | UIA ValuePattern 或定向 WM_CHAR（不注入全局键盘） |
 | `screen_info` | 虚拟屏幕范围与主屏分辨率 |
-| `mouse_position` | 当前鼠标坐标 |
+| `mouse_position` | 虚拟指针坐标 |
 
 
+## 支持的动作
 
-## 组合键
+| 指令示例 | 动作 |
+| --- | --- |
+| `打开 chrome` / `启动 记事本` | 启动应用（ShellExecute，内置常见应用别名） |
+| `打开 youtube` / `打开 https://...` | 打开网址 |
+| `搜索 爱泼斯坦 资料` | 打开 Google 搜索结果 |
+| `点击「开始」` / `双击 七` / `右键 桌面` | 虚拟点击（UIA pattern / 定向消息） |
+| `在文本编辑器输入你好` | ValuePattern 写入；不支持时定向 WM_CHAR（不注入全局键盘） |
+| `输入 chrome` | 定向输入到当前焦点控件 |
+| `按 ctrl+s` / `按 ctrl+l` | 应用级组合键（定向窗口消息；因应用而异） |
+| `oacu input winrun notepad` / `win_run` | ShellExecute 启动应用/路径/URL（虚拟 Win+R 替代） |
+| `向下滚动 3 次` | 滚动 |
+| `等待 2 秒` | 等待 |
+| `激活 计算器` | 前置窗口 |
 
-统一解析以下写法（CLI / MCP / `computer_act` 通用）：
+## 组合键（虚拟模式）
+
+解析器支持以下写法：
 
 ```text
-win+r     Win+R
-winr      等同 win+r
-ctrl+shift+esc
-alt+tab
-alt+f4
-ctrl+l
-^s        pywinauto 风格 = ctrl+s
-%{F4}     alt+f4
-+{TAB}    shift+tab
-{ENTER}   回车
-win       单独 Win 键
+ctrl+s / ^s        ctrl+s
+ctrl+l             应用级快捷键
+shift+tab / +{TAB}
+alt+f4 / %{F4}
+win+r / winr       解析支持，但虚拟模式会拒绝
+ctrl+shift+esc     解析支持，但虚拟模式会拒绝
+alt+tab            解析支持，但虚拟模式会拒绝
+{ENTER} / enter
 ```
 
-`oacu input winrun "notepad"` / MCP `win_run` 会完整执行 Win+R → 输入命令 → 回车。
+虚拟模式的边界：
+
+- **应用级组合键**（`ctrl+s`、`ctrl+l`、`ctrl+a`、`shift+tab` 等）通过定向
+  `WM_KEYDOWN/UP` 发给目标窗口，不注入全局键盘；能否生效取决于应用是否接受
+  合成消息。
+- **系统级组合键**（`win`、`win+r`、`alt+tab`、`alt+f4`、`ctrl+shift+esc`）会
+  直接返回错误，避免接管用户键鼠。请改用 `launch_app`、`open_url`、
+  `search_web`、`win_run`。
+- `win_run` 不再弹运行框，而是用 ShellExecute 启动应用/路径/URL，例如
+  `oacu input winrun notepad`。
+
+## 虚拟模式边界
+
+- 优先使用 UIA pattern（Invoke / SelectionItem / ValuePattern / ScrollPattern）和
+  `SetFocus`；没有 pattern 时退回定向窗口消息。
+- 点击会显示一个**点击环**（虚拟指针），它置顶、穿透、不可交互；长驻的 MCP
+  服务里可见，CLI 单次命令进程退出后即消失。
+- 部分 Chromium / UWP / 游戏窗口会忽略合成 `WM_*` 消息；这类场景优先用
+  `launch_app`、`open_url`、`search_web`，或先 `desktop_find` 定位元素再尝试。
+- 系统级快捷键（Win、Win+R、Alt+Tab、Alt+F4、Ctrl+Shift+Esc）被拒绝，
+  这是“不接管用户键鼠”的硬边界。
+- 不再提供物理输入回退；需要真实键鼠注入时必须修改源码/自行扩展。
 
 ## Token 用量设计
 
@@ -150,8 +192,30 @@ win       单独 Win 键
 - `launch_app` / `open_url` / `search_web` / `win_run` **完全不扫描桌面**。
 - `computer_act` 默认只回 `{ok,status,steps,results}`；计划/IR 需要 `verbose=true`。
 
+实测一个 363 token 的桌面（字符数按 ~3.5 字符/token 估算）：
+
+| 调用 | 旧格式 | 新格式 | 降幅 |
+| --- | --- | --- | --- |
+| `desktop_scan` | ~26,059 tok | ~4,558 tok | **-82.5%** |
+| `desktop_tokens` | ~48,718 tok | ~4,569 tok | **-90.6%** |
+| `computer_act` | ~402 tok | ~91 tok | **-77.3%** |
+
+日常操作优先用 `desktop_find`（只回匹配行）或 `desktop_scan(diff=true)`，不要反复拉全量快照。
+
+### 为什么 75 次调用会烧掉 ~1M token
+
+按你提供的日志统计：75 次工具调用，工具结果合计约 13 万字符，但**每一轮都会把之前所有结果重新发给模型**，累计约 630 万字符（≈180 万 token；按不同 tokenizer/缓存口径，账单显示 100 万很正常）。其中：
+
+- `desktop_scan` 6 次，单次约 1.9 万字符（≈5.6k token）；
+- `desktop_find` 34 次、按键 17 次、文本 8 次，都是因为 0.2.1 只把摘要放进 `content.text`，元素表在 `structuredContent`，Chatbox 没把它给模型，模型只能“盲操作”并反复试探；
+- 每次调用都会把历史结果再算一遍，**调用次数比单次大小更致命**。
+
+2.0.0 起：元素表直接放进模型可见的 `content.text`，不再返回 `structuredContent`；`desktop_scan` 默认只回前 80 行并过滤无名容器；新增 `launch_app/open_url/search_web/win_run` 零扫描工具；应用级组合键定向发送，Win/Alt+Tab 等系统键明确拒绝。**换新会话执行任务**（不要把几十轮工具历史一直带着）同样关键。
+
 ### 平均任务消耗
-按 1.0.0 的实测载荷与典型 13 次工具调用估算：
+
+按 2.0.0 的实测载荷与典型 13 次工具调用估算：
+
 - **平均约 45k token/任务**（38k–50k）
 - 简单任务约 20k–30k；复杂任务约 60k–80k
 - 旧版同任务约 1M token
@@ -192,8 +256,8 @@ tests/              138 个单元测试（含 GUI 线程交互与输入校验）
 
 | 文件 | 说明 |
 | --- | --- |
-| `dist\installer\OpenAgentCU-1.0.0-Setup.exe` | 安装版（Program Files，需管理员；带卸载） |
-| `dist\OpenAgentCU-1.0.0-portable.zip` | 便携版（解压即用） |
+| `dist\installer\OpenAgentCU-2.0.0-Setup.exe` | 安装版（Program Files，需管理员；带卸载） |
+| `dist\OpenAgentCU-2.0.0-portable.zip` | 便携版（解压即用） |
 | `dist\OpenAgentCU\` | 便携目录（`OpenAgentCU.exe` + `oacu.exe` + `_internal`） |
 
 打包依赖：PyInstaller（MSYS2 `mingw-w64-ucrt-x86_64-pyinstaller`）与 Inno Setup 6。

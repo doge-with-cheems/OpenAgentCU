@@ -29,12 +29,12 @@ if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
 Copy-Item (Join-Path $PSScriptRoot "install.bat") (Join-Path $root "dist\installer\install.bat") -Force
 
 Write-Host "== 4/4 portable zip =="
-$zip = Join-Path $root "dist\OpenAgentCU-1.0.0-portable.zip"
+$zip = Join-Path $root "dist\OpenAgentCU-2.0.0-portable.zip"
 if (Test-Path $zip) { Remove-Item $zip -Force }
 Compress-Archive -Path (Join-Path $root "dist\OpenAgentCU\*") -DestinationPath $zip -CompressionLevel Optimal
 Copy-Item (Join-Path $PSScriptRoot "README-install.txt") (Join-Path $root "dist\安装说明.txt") -Force
 
 Write-Host ""
 Write-Host "portable : dist\OpenAgentCU\OpenAgentCU.exe"
-Write-Host "setup    : dist\installer\OpenAgentCU-1.0.0-Setup.exe"
-Write-Host "zip      : dist\OpenAgentCU-1.0.0-portable.zip"
+Write-Host "setup    : dist\installer\OpenAgentCU-2.0.0-Setup.exe"
+Write-Host "zip      : dist\OpenAgentCU-2.0.0-portable.zip"
