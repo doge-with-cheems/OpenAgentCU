@@ -11,12 +11,6 @@ IR，交给本地解释器按序操作 UI Automation 元素。默认使用**虚�
 **当前版本 2.0.0：默认虚拟指针，不接管用户键鼠。**
 
 ## 下载
-
-- [Windows 安装包（Setup.exe）](https://github.com/doge-with-cheems/OpenAgentCU/releases/latest)
-- [便携版 ZIP](https://github.com/doge-with-cheems/OpenAgentCU/releases/latest)
-- [源代码 ZIP](https://github.com/doge-with-cheems/OpenAgentCU/releases/latest)
-
-> 安装包未签名，Windows SmartScreen 可能提示“未知发布者”；介意时使用便携版。
 > 支持 Windows 10/11 x64，不需要单独安装 Python。
 
 ## 能力概览
@@ -43,46 +37,7 @@ MCP 配置一键复制）、**输入控制**（虚拟指针移动/点击/拖拽/
 
 `--tab 0..4` 可直接打开指定页；`--self-test` 用于无交互自检（打印 `gui 5/5`）。
 
-## 快速开始
 
-```powershell
-cd E:\document\ai\working_file\opencu
-
-# 0. 图形界面
-python -m oacu gui
-
-# 1. 抓桌面并落库
-python -m oacu scan
-
-# 2. 看当前组件 token
-python -m oacu dump --limit 20
-
-# 3. 只生成计划与 IR，不动鼠标键盘
-python -m oacu plan "点击记事本"
-python -m oacu plan "在文本编辑器输入你好然后按键回车"
-
-# 4. 真正执行（进程内）
-python -m oacu act "点击七" --inproc
-
-# 5. 虚拟指针控制（不移动系统光标）
-python -m oacu input screen
-python -m oacu input pos
-python -m oacu input move --x 800 --y 500 --duration-ms 200
-python -m oacu input click --x 800 --y 500 --button left
-python -m oacu input drag --from-x 100 --from-y 100 --to-x 600 --to-y 400
-python -m oacu input scroll --dy -3
-python -m oacu input key --press "ctrl+s"
-python -m oacu input key --hold shift --ms 800
-python -m oacu input type "hello"
-python -m oacu input winrun notepad
-
-# 6. 或者先起解释器守护进程，再远程执行
-python -m oacu serve
-python -m oacu exec %APPDATA%\OpenAgentCU\ir\<trace-id>.json
-```
-
-全局参数：`--json`、`--db`、`--backend {auto,ps,uia,fake}`、`--timeout`、`-v`。
-退出码：`0` 成功、`1` 运行失败、`2` 用法错误、`3` 环境/数据不可用。
 
 ## MCP
 
@@ -134,7 +89,6 @@ MCP 客户端配置示例：
 | --- | --- |
 | `打开 chrome` / `启动 记事本` | 启动应用（ShellExecute，内置常见应用别名） |
 | `打开 youtube` / `打开 https://...` | 打开网址 |
-| `搜索 爱泼斯坦 资料` | 打开 Google 搜索结果 |
 | `点击「开始」` / `双击 七` / `右键 桌面` | 虚拟点击（UIA pattern / 定向消息） |
 | `在文本编辑器输入你好` | ValuePattern 写入；不支持时定向 WM_CHAR（不注入全局键盘） |
 | `输入 chrome` | 定向输入到当前焦点控件 |
@@ -250,26 +204,3 @@ tools/
   gui_probe.py      图形外壳自检：gui 5/5
 tests/              138 个单元测试（含 GUI 线程交互与输入校验）
 ```
-
-
-产物：
-
-| 文件 | 说明 |
-| --- | --- |
-| `dist\installer\OpenAgentCU-2.0.0-Setup.exe` | 安装版（Program Files，需管理员；带卸载） |
-| `dist\OpenAgentCU-2.0.0-portable.zip` | 便携版（解压即用） |
-| `dist\OpenAgentCU\` | 便携目录（`OpenAgentCU.exe` + `oacu.exe` + `_internal`） |
-
-打包依赖：PyInstaller（MSYS2 `mingw-w64-ucrt-x86_64-pyinstaller`）与 Inno Setup 6。
-安装包入口脚本在 `packaging\cli_entry.py` / `gui_entry.py`，spec 在
-`packaging\OpenAgentCU.spec`，安装器脚本在 `packaging\installer.iss`。
-
-安装版会把数据写到 `%APPDATA%\OpenAgentCU`；不可写时依次回退到
-`%LOCALAPPDATA%`、`C:\Users\Public\OpenAgentCU`、`~\.opencu`、当前目录 `.opencu`。
-
-## 已知边界
-
-- 计划器是确定性的规则匹配，不调用 LLM；支持启动/打开/搜索、点击/双击/右键、输入/逐字输入、滚动、按键（含 Win/组合键）、等待、激活。
-- 快照默认 30 秒过期；执行前元素失效会返回 `stale_token`，重新 `scan` 即可。
-- token 不保存 COM 句柄，执行时按名称/automation_id/坐标重新定位元素。
-- 只支持单轮指令，不做多步自主循环。
