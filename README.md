@@ -8,7 +8,7 @@ IR，交给本地解释器按序操作 UI Automation 元素。默认使用**虚�
 
 零第三方 Python 依赖：UIA 通过 PowerShell 5.1 的
 `System.Windows.Automation` 访问，存储用标准库 `sqlite3`，通信用 `socket`。
-**当前版本 2.0.0：默认虚拟指针，不接管用户键鼠。**
+**当前版本 2.0.1：默认虚拟指针（▣），不接管用户键鼠。**
 
 ## 下载
 > 支持 Windows 10/11 x64，不需要单独安装 Python。
@@ -128,8 +128,11 @@ alt+tab            解析支持，但虚拟模式会拒绝
 
 - 优先使用 UIA pattern（Invoke / SelectionItem / ValuePattern / ScrollPattern）和
   `SetFocus`；没有 pattern 时退回定向窗口消息。
-- 点击会显示一个**点击环**（虚拟指针），它置顶、穿透、不可交互；长驻的 MCP
-  服务里可见，CLI 单次命令进程退出后即消失。
+- 每次操作都会在目标位置显示 **`▣` 虚拟游标**（独立 `oacu overlay` 进程渲染）：
+  置顶、点击穿透、不抢焦点；长驻的 MCP/GUI 里持续可见，CLI 单次命令
+  进程退出后游标随之消失。
+- 游标进程与主进程解耦，通过 stdin JSON 通信；可用环境变量
+  `OACU_NO_OVERLAY=1` 关闭。
 - 部分 Chromium / UWP / 游戏窗口会忽略合成 `WM_*` 消息；这类场景优先用
   `launch_app`、`open_url`、`search_web`，或先 `desktop_find` 定位元素再尝试。
 - 系统级快捷键（Win、Win+R、Alt+Tab、Alt+F4、Ctrl+Shift+Esc）被拒绝，
@@ -168,7 +171,7 @@ alt+tab            解析支持，但虚拟模式会拒绝
 
 ### 平均任务消耗
 
-按 2.0.0 的实测载荷与典型 13 次工具调用估算：
+按 2.0.1 的实测载荷与典型 13 次工具调用估算：
 
 - **平均约 45k token/任务**（38k–50k）
 - 简单任务约 20k–30k；复杂任务约 60k–80k
@@ -181,7 +184,10 @@ alt+tab            解析支持，但虚拟模式会拒绝
 oacu/
   cli.py            命令行入口（scan/dump/plan/act/exec/serve/mcp/doctor/gui/input）
   gui.py            tkinter 图形外壳（快照 / 指令 / 记录 / MCP / 输入控制）
-  input.py          鼠标移动/点击/拖拽/滚轮、按键、文本输入
+  input.py          虚拟输入薄封装（转发到 virtual.py）
+  virtual.py        虚拟指针：UIA pattern + SetFocus + 定向 WM_* 消息
+  overlay.py        独立 ▣ 游标进程（置顶、穿透、不抢焦点）
+  keys.py           按键解析与别名
   config.py         路径与默认值（%APPDATA%/OpenAgentCU）
   models.py         RawElement / Element / Token / Snapshot
   pipeline.py       capture → normalize → order → tokenize
@@ -191,7 +197,7 @@ oacu/
   planner.py        规则规划器（中英文动词 + 模糊匹配）
   ir.py             IR v1 编译、校验、落盘
   transport.py      JSON-lines over TCP 127.0.0.1:8765
-  interpreter.py    按时序执行，鼠标/键盘/PS UIA pattern
+  interpreter.py    按时序执行；点击优先 UIA pattern
   agent.py          单轮编排与 actions 审计
   uia/              PowerShell UIA 桥与采集
   mcp/              MCP JSON-RPC 2.0 stdio 服务
@@ -204,3 +210,4 @@ tools/
   gui_probe.py      图形外壳自检：gui 5/5
 tests/              138 个单元测试（含 GUI 线程交互与输入校验）
 ```
+

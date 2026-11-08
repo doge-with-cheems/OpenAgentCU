@@ -1,12 +1,20 @@
-# OpenAgentCU 2.0.0
+# OpenAgentCU 2.0.1
 
-2.0.0：默认改为虚拟指针与定向 UIA/窗口消息，不移动系统光标、不注入全局键鼠。
+2.0.1：新增 **`▣` 虚拟游标**（独立 overlay 进程渲染，置顶、点击穿透、不抢焦点）。
+2.0.0 起默认使用虚拟指针与定向 UIA/窗口消息，不移动系统光标、不注入全局键鼠。
+
+## 2.0.1 变更
+
+- 新增 `▣` 虚拟游标，每次操作显示在目标位置
+- 游标由独立 `oacu overlay` 进程渲染，不占用主进程 Tk 线程
+- 游标窗口 `WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE`，点击穿透
+- 环境变量 `OACU_NO_OVERLAY=1` 可关闭游标
 
 ## 下载
 
-- `OpenAgentCU-2.0.0-Setup.exe`：Windows 安装版（Program Files，需管理员确认 UAC）
-- `OpenAgentCU-2.0.0-portable.zip`：便携版，解压即用
-- `OpenAgentCU-2.0.0-source.zip`：完整源代码
+- `OpenAgentCU-2.0.1-Setup.exe`：Windows 安装版（Program Files，需管理员确认 UAC）
+- `OpenAgentCU-2.0.1-portable.zip`：便携版，解压即用
+- `OpenAgentCU-2.0.1-source.zip`：完整源代码
 
 安装包未做代码签名，SmartScreen 可能提示“未知发布者”。
 
@@ -14,7 +22,7 @@
 - 基于 Windows UI Automation 的桌面感知与元素 token 化
 - MCP stdio 服务（18 个工具），可被 Chatbox/Claude 等客户端调用
 - **虚拟指针**：不移动系统光标、不注入全局键鼠；UIA pattern + 定向窗口消息
-- 虚拟鼠标：移动/点击/双击/右键/拖拽/滚轮，附带可见的点击环
+- 虚拟鼠标：移动/点击/双击/右键/拖拽/滚轮，附带 `▣` 虚拟游标
 - 键盘：UIA ValuePattern / 定向 WM_CHAR / WM_KEYDOWN；应用级组合键
 - 系统键（Win/Alt+Tab/Alt+F4/Ctrl+Shift+Esc）明确拒绝，避免接管用户输入
 - 虚拟 Win+R 替代：`win_run` / `oacu input winrun`（ShellExecute 启动应用/路径/URL）

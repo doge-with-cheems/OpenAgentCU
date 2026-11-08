@@ -99,6 +99,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_gui.add_argument("--self-test", action="store_true", help=argparse.SUPPRESS)
     p_gui.set_defaults(func=cmd_gui)
 
+    p_overlay = sub.add_parser("overlay", parents=[common], help=argparse.SUPPRESS)
+    p_overlay.set_defaults(func=cmd_overlay)
+    # argparse still lists SUPPRESS'd subcommands; drop the pseudo-action to keep it hidden.
+    sub._choices_actions = [a for a in sub._choices_actions
+                           if getattr(a, "dest", None) != "overlay"]
+
     p_input = sub.add_parser("input", parents=[common], help="direct mouse and keyboard control")
     input_sub = p_input.add_subparsers(dest="input_action", metavar="<action>")
 
@@ -530,6 +536,12 @@ def cmd_input(args: argparse.Namespace, settings: Settings) -> int:
     payload = {"ok": True, **payload, "text": summary}
     _emit(settings, payload)
     return 0
+
+
+def cmd_overlay(args: argparse.Namespace, settings: Settings) -> int:
+    from .overlay import main as overlay_main
+
+    return overlay_main()
 
 
 def cmd_gui(args: argparse.Namespace, settings: Settings) -> int:

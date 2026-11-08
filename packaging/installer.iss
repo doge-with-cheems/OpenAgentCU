@@ -1,5 +1,5 @@
 #define MyAppName "OpenAgentCU"
-#define MyAppVersion "2.0.0"
+#define MyAppVersion "2.0.1"
 #define MyAppExeName "OpenAgentCU.exe"
 #define MyAppId "{{8F3A2C1E-6B4D-4E7A-9C2F-1D5A7B3E9C42}"
 #ifndef MyPrivileges

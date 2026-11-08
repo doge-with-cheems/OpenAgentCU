@@ -10,11 +10,13 @@ from __future__ import annotations
 import ctypes
 import json
 import os
-import queue
 import sys
 import threading
 import time
 from ctypes import wintypes
+from pathlib import Path
+
+import subprocess
 
 from .errors import OacuError
 from .keys import MOD_ORDER, MOD_VK, KeyParseError, canonical_keys, parse_keys
@@ -40,6 +42,8 @@ SM_XVIRTUALSCREEN = 76
 SM_YVIRTUALSCREEN = 77
 SM_CXVIRTUALSCREEN = 78
 SM_CYVIRTUALSCREEN = 79
+
+VIRTUAL_CURSOR = "▣"
 
 GWL_EXSTYLE = -20
 WS_EX_LAYERED = 0x00080000
@@ -174,11 +178,10 @@ def _focus_window() -> int:
 
 
 class _Overlay:
-    """Click-through topmost ring. Purely visual; never receives input."""
+    """Click-through ▣ overlay, hosted in a separate main-thread Tk process."""
 
     def __init__(self) -> None:
-        self.queue: queue.Queue[tuple[int, int, float]] = queue.Queue()
-        self._started = False
+        self._proc: subprocess.Popen[str] | None = None
         self._failed = False
         self._lock = threading.Lock()
 
@@ -188,66 +191,41 @@ class _Overlay:
             return True
         return "oacu.gui" in sys.modules
 
+    def _start(self) -> None:
+        if getattr(sys, "frozen", False):
+            command = [sys.executable, "overlay"]
+            cwd = None
+        else:
+            command = [sys.executable, "-m", "oacu", "overlay"]
+            cwd = str(Path(__file__).resolve().parents[1])
+        self._proc = subprocess.Popen(
+            command,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            encoding="utf-8",
+            cwd=cwd,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+
     def show(self, x: int, y: int, hold_ms: int = 900) -> None:
         if self.disabled:
             return
         with self._lock:
             if self._failed:
                 return
-            if not self._started:
-                self._started = True
-                threading.Thread(target=self._run, daemon=True).start()
-        self.queue.put((int(x), int(y), time.monotonic() + hold_ms / 1000.0))
-
-    def _run(self) -> None:
-        try:
-            import tkinter as tk
-
-            root = tk.Tk()
-            root.overrideredirect(True)
-            root.attributes("-topmost", True)
-            root.attributes("-transparentcolor", "#ff00ff")
-            root.configure(bg="#ff00ff")
-            canvas = tk.Canvas(root, width=64, height=64, bg="#ff00ff",
-                               highlightthickness=0)
-            canvas.pack()
-            canvas.create_oval(10, 10, 54, 54, outline="#0d9488", width=3)
-            canvas.create_oval(29, 29, 35, 35, fill="#0d9488", outline="")
-            root.withdraw()
-            root.update_idletasks()
-            handle = int(root.winfo_id())
-            user32 = _user32()
-            user32.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
-            user32.GetWindowLongW.restype = ctypes.c_long
-            user32.SetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_long]
-            user32.SetWindowLongW.restype = ctypes.c_long
-            style = user32.GetWindowLongW(handle, GWL_EXSTYLE)
-            user32.SetWindowLongW(
-                handle, GWL_EXSTYLE,
-                style | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE,
-            )
-            visible_until = 0.0
-            while True:
-                changed = False
+            payload = json.dumps({"x": int(x), "y": int(y), "ms": int(hold_ms)}) + "\n"
+            for _attempt in range(2):
                 try:
-                    while True:
-                        x, y, expire = self.queue.get_nowait()
-                        root.geometry(f"64x64+{x - 32}+{y - 32}")
-                        root.deiconify()
-                        root.attributes("-topmost", True)
-                        visible_until = expire
-                        changed = True
-                except queue.Empty:
-                    pass
-                if visible_until and time.monotonic() > visible_until:
-                    root.withdraw()
-                    visible_until = 0.0
-                    changed = True
-                if changed:
-                    root.update_idletasks()
-                root.update()
-                time.sleep(0.03)
-        except Exception:  # noqa: BLE001 - overlay is optional
+                    if self._proc is None or self._proc.poll() is not None:
+                        self._start()
+                    assert self._proc is not None and self._proc.stdin is not None
+                    self._proc.stdin.write(payload)
+                    self._proc.stdin.flush()
+                    return
+                except (OSError, ValueError, AssertionError):
+                    self._proc = None
             self._failed = True
 
 

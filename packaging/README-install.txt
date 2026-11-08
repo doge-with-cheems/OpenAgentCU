@@ -1,8 +1,8 @@
-OpenAgentCU 2.0.0
+OpenAgentCU 2.0.1
 ==================
 
 一、安装版
-  双击 OpenAgentCU-2.0.0-Setup.exe
+  双击 OpenAgentCU-2.0.1-Setup.exe
   - 默认安装到 C:\Program Files\OpenAgentCU，需要管理员权限（UAC 确认一次）
   - 安装完成后可从开始菜单启动（可选创建桌面快捷方式）
   - 卸载：Windows 设置 → 应用 → OpenAgentCU
@@ -11,7 +11,7 @@ OpenAgentCU 2.0.0
   - 仍然失败时，请直接使用下面的便携版
 
 二、便携版
-  解压 OpenAgentCU-2.0.0-portable.zip 到任意目录
+  解压 OpenAgentCU-2.0.1-portable.zip 到任意目录
   双击 OpenAgentCU.exe 启动
   不要删除同目录下的 _internal 文件夹
 

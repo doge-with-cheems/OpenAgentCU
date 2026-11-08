@@ -1,6 +1,6 @@
 # OpenAgentCU Token 基准
 
-测量日期：2026-11-06 ｜ 版本：2.0.0 ｜ 估算口径：约 3.5 字符/token（JSON 与服务端 tokenizer 有差异）
+测量日期：2026-11-06 ｜ 版本：2.0.0（2.0.1 沿用） ｜ 估算口径：约 3.5 字符/token（JSON 与服务端 tokenizer 有差异）
 
 ## 1. 单次 MCP 调用
 
