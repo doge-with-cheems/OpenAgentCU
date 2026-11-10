@@ -1,20 +1,31 @@
-# OpenAgentCU 2.0.1
+# OpenAgentCU 2.1.0
 
-2.0.1：新增 **`▣` 虚拟游标**（独立 overlay 进程渲染，置顶、点击穿透、不抢焦点）。
-2.0.0 起默认使用虚拟指针与定向 UIA/窗口消息，不移动系统光标、不注入全局键鼠。
+2.1.0：虚拟游标 **面积缩小 50%**（36×36），并支持 **最多 4 个独立虚拟指针**；
+默认仍只使用 1 个。虚拟指针与定向 UIA/窗口消息的边界保持不变：不移动系统光标、
+不注入全局键鼠。
 
-## 2.0.1 变更
+## 2.1.0 变更
 
-- 新增 `▣` 虚拟游标，每次操作显示在目标位置
-- 游标由独立 `oacu overlay` 进程渲染，不占用主进程 Tk 线程
+- `▣` 游标窗口与字号减半：从 72×72 缩至 36×36
+- 最多 4 个独立虚拟指针，默认 1 号；其余按需创建
+- 每个指针独立保存坐标、目标窗口和显示期限，互不影响
+- MCP 鼠标/键盘/输入工具新增可选 `pointer` 参数（1–4，默认 1）
+- CLI `input move/click/drag/scroll/key/type/pos` 新增 `--pointer` 参数
+- 2–4 号指针首次使用时从虚拟屏幕中心开始，避免与用户物理光标重叠
+- 状态文件升级为多指针格式，兼容读取 2.0.x 的单指针 `pointer.json`
+- overlay 进程按需创建窗口，支持 `{"id": n, "hide": true}` 隐藏单个游标
+
+## 2.0.1
+
+- 新增 `▣` 虚拟游标，由独立 `oacu overlay` 进程渲染
 - 游标窗口 `WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE`，点击穿透
 - 环境变量 `OACU_NO_OVERLAY=1` 可关闭游标
 
 ## 下载
 
-- `OpenAgentCU-2.0.1-Setup.exe`：Windows 安装版（Program Files，需管理员确认 UAC）
-- `OpenAgentCU-2.0.1-portable.zip`：便携版，解压即用
-- `OpenAgentCU-2.0.1-source.zip`：完整源代码
+- `OpenAgentCU-2.1.0-Setup.exe`：Windows 安装版（Program Files，需管理员确认 UAC）
+- `OpenAgentCU-2.1.0-portable.zip`：便携版，解压即用
+- `OpenAgentCU-2.1.0-source.zip`：完整源代码
 
 安装包未做代码签名，SmartScreen 可能提示“未知发布者”。
 
@@ -23,6 +34,7 @@
 - MCP stdio 服务（18 个工具），可被 Chatbox/Claude 等客户端调用
 - **虚拟指针**：不移动系统光标、不注入全局键鼠；UIA pattern + 定向窗口消息
 - 虚拟鼠标：移动/点击/双击/右键/拖拽/滚轮，附带 `▣` 虚拟游标
+- 最多 4 个独立虚拟游标（默认 1 个），每个可独立定位和计时
 - 键盘：UIA ValuePattern / 定向 WM_CHAR / WM_KEYDOWN；应用级组合键
 - 系统键（Win/Alt+Tab/Alt+F4/Ctrl+Shift+Esc）明确拒绝，避免接管用户输入
 - 虚拟 Win+R 替代：`win_run` / `oacu input winrun`（ShellExecute 启动应用/路径/URL）
@@ -51,7 +63,7 @@
 
 ## 验证
 
-- 138 个单元测试
+- 145 个单元测试
 - CLI 冒烟 9/9
 - 端到端 12/12
 - MCP 协议 4/4

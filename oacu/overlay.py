@@ -1,9 +1,14 @@
 """Standalone click-through virtual cursor overlay (▣).
 
 Run as its own process so Tk owns the main thread. The parent (MCP server)
-writes one JSON line per show command to stdin:
+writes one JSON line per command to stdin:
 
-    {"x": 500, "y": 320, "ms": 900}
+    {"id": 1, "x": 500, "y": 320, "ms": 900}
+    {"id": 2, "hide": true}
+
+Up to four independent pointer windows are hosted in the same process. Each
+pointer keeps its own position and display deadline; unused pointers are
+created lazily and normally only pointer 1 is visible.
 """
 
 from __future__ import annotations
@@ -19,6 +24,11 @@ from ctypes import wintypes
 import ctypes
 
 CURSOR = "▣"
+MAX_POINTERS = 4
+SIZE = 36
+FONT_SIZE = 22
+COLORKEY = "#ff00ff"
+COLORKEY_REF = 0x00FF00FF
 GWL_EXSTYLE = -20
 WS_EX_LAYERED = 0x00080000
 WS_EX_TRANSPARENT = 0x00000020
@@ -40,21 +50,9 @@ def main() -> int:
 
     root = tk.Tk()
     root.overrideredirect(True)
-    root.attributes("-topmost", True)
-    root.attributes("-transparentcolor", "#ff00ff")
-    root.configure(bg="#ff00ff")
-    canvas = tk.Canvas(root, width=72, height=72, bg="#ff00ff", highlightthickness=0)
-    canvas.pack()
-    font = ("Segoe UI Symbol", 44)
-    for dx, dy in ((-1, -1), (1, -1), (-1, 1), (1, 1),
-                   (-1, 0), (1, 0), (0, -1), (0, 1)):
-        canvas.create_text(36 + dx, 36 + dy, text=CURSOR, font=font, fill="#ffffff")
-    canvas.create_text(36, 36, text=CURSOR, font=font, fill="#0d9488")
     root.withdraw()
-    root.update_idletasks()
 
     user32 = ctypes.windll.user32
-    handle = int(root.winfo_id())
     set_ptr = user32.SetWindowLongPtrW
     set_ptr.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_longlong]
     set_ptr.restype = ctypes.c_longlong
@@ -78,60 +76,113 @@ def main() -> int:
                             wintypes.DWORD]
     set_layered.restype = wintypes.BOOL
 
-    def apply_style() -> None:
-        targets = [handle]
-        parent = get_parent(wintypes.HWND(handle))
-        if parent:
-            targets.append(int(parent))
-        for target in targets:
+    def apply_style(entry: dict) -> None:
+        for target in entry["handles"]:
             style = get_ptr(target, GWL_EXSTYLE)
             set_ptr(target, GWL_EXSTYLE,
                     style | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE)
             # Re-assert the colour key: changing the ex-style resets the layer attrs.
-            set_layered(target, 0x00FF00FF, 255, LWA_COLORKEY)
+            set_layered(target, COLORKEY_REF, 255, LWA_COLORKEY)
             set_top(target, HWND_TOPMOST, 0, 0, 0, 0,
                     SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE)
 
-    apply_style()
+    def create(pointer_id: int) -> dict:
+        window = tk.Toplevel(root)
+        window.overrideredirect(True)
+        window.attributes("-topmost", True)
+        window.attributes("-transparentcolor", COLORKEY)
+        window.configure(bg=COLORKEY)
+        canvas = tk.Canvas(window, width=SIZE, height=SIZE, bg=COLORKEY,
+                           highlightthickness=0)
+        canvas.pack()
+        center = SIZE // 2
+        font = ("Segoe UI Symbol", FONT_SIZE)
+        for dx, dy in ((-1, -1), (1, -1), (-1, 1), (1, 1),
+                       (-1, 0), (1, 0), (0, -1), (0, 1)):
+            canvas.create_text(center + dx, center + dy, text=CURSOR,
+                               font=font, fill="#ffffff")
+        canvas.create_text(center, center, text=CURSOR, font=font, fill="#0d9488")
+        window.withdraw()
+        window.update_idletasks()
 
-    visible_until = 0.0
+        handle = int(window.winfo_id())
+        handles = [handle]
+        parent = get_parent(wintypes.HWND(handle))
+        if parent:
+            handles.append(int(parent))
+        entry = {"window": window, "until": 0.0, "handles": handles}
+        windows[pointer_id] = entry
+        apply_style(entry)
+        return entry
+
+    windows: dict[int, dict] = {}
+
+    def show(pointer_id: int, x: int, y: int, ms: int) -> None:
+        entry = windows.get(pointer_id) or create(pointer_id)
+        window = entry["window"]
+        offset = SIZE // 2
+        window.geometry(f"{SIZE}x{SIZE}+{x - offset}+{y - offset}")
+        window.deiconify()
+        window.lift()
+        window.attributes("-topmost", True)
+        window.update_idletasks()
+        entry["until"] = time.monotonic() + max(0, ms) / 1000.0
+        apply_style(entry)
+
+    def hide(pointer_id: int) -> None:
+        entry = windows.get(pointer_id)
+        if entry is None:
+            return
+        entry["window"].withdraw()
+        entry["until"] = 0.0
+
     closing = False
 
     def poll() -> None:
-        nonlocal visible_until, closing
-        changed = False
+        nonlocal closing
         try:
             while True:
                 item = commands.get_nowait()
                 if item is None:
-                    # Parent exited. Keep the cursor up until its hold expires so
-                    # one-shot CLI commands still show it.
-                    if visible_until and time.monotonic() < visible_until:
+                    # Parent exited. Keep cursors up until their holds expire so
+                    # one-shot CLI commands still show them.
+                    if any(entry["until"] for entry in windows.values()):
                         closing = True
-                        break
-                    root.destroy()
-                    return
-                x = int(item.get("x", 0))
-                y = int(item.get("y", 0))
-                ms = int(item.get("ms", 900))
-                root.geometry(f"72x72+{x - 36}+{y - 36}")
-                root.deiconify()
-                root.lift()
-                root.attributes("-topmost", True)
-                visible_until = time.monotonic() + ms / 1000.0
-                changed = True
+                    else:
+                        root.destroy()
+                        return
+                    break
+                try:
+                    pointer_id = int(item.get("id", 1))
+                except (TypeError, ValueError):
+                    continue
+                if not 1 <= pointer_id <= MAX_POINTERS:
+                    continue
+                if item.get("hide"):
+                    hide(pointer_id)
+                    continue
+                try:
+                    x = int(item.get("x", 0))
+                    y = int(item.get("y", 0))
+                    ms = int(item.get("ms", 900))
+                except (TypeError, ValueError):
+                    continue
+                show(pointer_id, x, y, ms)
         except queue.Empty:
             pass
-        if visible_until and time.monotonic() > visible_until:
-            root.withdraw()
-            visible_until = 0.0
-            changed = True
-            if closing:
-                root.destroy()
-                return
-        if changed:
+
+        now = time.monotonic()
+        expired = False
+        for entry in windows.values():
+            if entry["until"] and now > entry["until"]:
+                entry["window"].withdraw()
+                entry["until"] = 0.0
+                expired = True
+        if expired:
             root.update_idletasks()
-            apply_style()
+        if closing and not any(entry["until"] for entry in windows.values()):
+            root.destroy()
+            return
         root.after(30, poll)
 
     root.after(30, poll)

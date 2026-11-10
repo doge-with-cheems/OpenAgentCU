@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from .keys import SINGLE_KEYS, canonical_keys
 from .virtual import (
+    MAX_POINTERS,
     VirtualInputError,
     click,
     drag,
@@ -18,6 +19,7 @@ from .virtual import (
     mouse_position,
     move,
     physical_mouse_position,
+    pointer,
     screen_info,
     scroll,
     type_text,
@@ -37,6 +39,7 @@ def normalize_keys(keys: str) -> str:
 
 __all__ = [
     "InputError",
+    "MAX_POINTERS",
     "VirtualInputError",
     "click",
     "drag",
@@ -48,6 +51,7 @@ __all__ = [
     "move",
     "normalize_keys",
     "physical_mouse_position",
+    "pointer",
     "screen_info",
     "scroll",
     "type_text",

@@ -8,7 +8,7 @@ IR，交给本地解释器按序操作 UI Automation 元素。默认使用**虚�
 
 零第三方 Python 依赖：UIA 通过 PowerShell 5.1 的
 `System.Windows.Automation` 访问，存储用标准库 `sqlite3`，通信用 `socket`。
-**当前版本 2.0.1：默认虚拟指针（▣），不接管用户键鼠。**
+**当前版本 2.1.0：默认虚拟指针（▣），支持最多 4 个独立虚拟指针。**
 
 ## 下载
 > 支持 Windows 10/11 x64，不需要单独安装 Python。
@@ -18,6 +18,7 @@ IR，交给本地解释器按序操作 UI Automation 元素。默认使用**虚�
 - 桌面 UIA 采集 → 去噪 → 阅读顺序 → 紧凑 token 表
 - MCP stdio 服务：`desktop_scan/tokens/find/summary`、`computer_act`
 - 虚拟指针：移动、点击、双击、右键、拖拽、滚轮（系统光标不动）
+- 最多 4 个独立虚拟指针，默认只使用 1 个；游标面积较 2.0.1 缩小 50%（36×36）
 - 键盘：UIA ValuePattern / 定向 `WM_CHAR` / `WM_KEYDOWN`，不注入全局键鼠
 - Win+R 替代：`win_run` / `oacu input winrun <command>`（ShellExecute 启动应用/路径/URL）
 - 零扫描动作：`launch_app`、`open_url`、`search_web`、`win_run`
@@ -72,15 +73,18 @@ MCP 客户端配置示例：
 | `search_web` | 打开 Google/Bing/YouTube 搜索结果（零扫描） |
 | `win_run` | 虚拟 Win+R 替代：ShellExecute 启动应用/路径/URL（零扫描） |
 | `computer_act` | 单轮：计划 → IR → 虚拟执行（默认只回状态，`verbose=true` 才回计划/IR） |
-| `mouse_move` | 移动虚拟指针（系统光标不动） |
-| `mouse_click` | 定向消息点击（UIA pattern / 窗口消息） |
-| `mouse_drag` | 虚拟拖拽（系统光标不动） |
-| `mouse_scroll` | 定向滚轮消息 |
-| `key_press` | 定向按键；系统 Win/Alt+Tab/Ctrl+Shift+Esc 被拒绝 |
-| `key_hold` | 定向按住指定时长 |
-| `type_text` | UIA ValuePattern 或定向 WM_CHAR（不注入全局键盘） |
+| `mouse_move` | 移动虚拟指针（系统光标不动），可选 `pointer` 1–4 |
+| `mouse_click` | 定向消息点击（UIA pattern / 窗口消息），可选 `pointer` 1–4 |
+| `mouse_drag` | 虚拟拖拽（系统光标不动），可选 `pointer` 1–4 |
+| `mouse_scroll` | 定向滚轮消息，可选 `pointer` 1–4 |
+| `key_press` | 定向按键；系统 Win/Alt+Tab/Ctrl+Shift+Esc 被拒绝，可选 `pointer` 1–4 |
+| `key_hold` | 定向按住指定时长，可选 `pointer` 1–4 |
+| `type_text` | UIA ValuePattern 或定向 WM_CHAR（不注入全局键盘），可选 `pointer` 1–4 |
 | `screen_info` | 虚拟屏幕范围与主屏分辨率 |
-| `mouse_position` | 虚拟指针坐标 |
+| `mouse_position` | 虚拟指针坐标，可选 `pointer` 1–4 |
+
+所有鼠标/键盘/输入工具都支持可选 `pointer`（1–4，默认 1）；CLI 对应参数为
+`--pointer`，例如 `oacu input move --x 800 --y 400 --pointer 2`。
 
 
 ## 支持的动作
@@ -129,8 +133,9 @@ alt+tab            解析支持，但虚拟模式会拒绝
 - 优先使用 UIA pattern（Invoke / SelectionItem / ValuePattern / ScrollPattern）和
   `SetFocus`；没有 pattern 时退回定向窗口消息。
 - 每次操作都会在目标位置显示 **`▣` 虚拟游标**（独立 `oacu overlay` 进程渲染）：
-  置顶、点击穿透、不抢焦点；长驻的 MCP/GUI 里持续可见，CLI 单次命令
-  进程退出后游标随之消失。
+  置顶、点击穿透、不抢焦点；默认显示约 900ms。
+- 游标窗口为 36×36（2.0.1 的 50%）。最多可同时显示 4 个独立游标，默认只创建
+  并使用 1 号；`pointer=2..4` 时按需创建，各自保存位置并独立计时。
 - 游标进程与主进程解耦，通过 stdin JSON 通信；可用环境变量
   `OACU_NO_OVERLAY=1` 关闭。
 - 部分 Chromium / UWP / 游戏窗口会忽略合成 `WM_*` 消息；这类场景优先用
@@ -208,6 +213,6 @@ tools/
   flow_check.py     G3：e2e 12/12
   mcp_probe.py      G4：mcp 4/4
   gui_probe.py      图形外壳自检：gui 5/5
-tests/              138 个单元测试（含 GUI 线程交互与输入校验）
+tests/              145 个单元测试（含 GUI 线程交互与输入校验）
 ```
 

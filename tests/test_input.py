@@ -1,12 +1,14 @@
 import unittest
 
 from oacu.input import (
+    MAX_POINTERS,
     InputError,
     click,
     drag,
     key_press,
     mouse_position,
     normalize_keys,
+    pointer,
     screen_info,
     scroll,
     type_text,
@@ -42,6 +44,19 @@ class InputTests(unittest.TestCase):
         self.assertEqual(normalize_keys("回车"), "{ENTER}")
         self.assertEqual(normalize_keys("c,h,r,o,m,e"), "chrome")
         self.assertEqual(normalize_keys("ctrl+s"), "ctrl+s")
+
+    def test_pointer_ids_limited_to_four(self) -> None:
+        self.assertEqual(MAX_POINTERS, 4)
+        for bad in (0, MAX_POINTERS + 1):
+            with self.assertRaises(InputError):
+                pointer(bad)
+
+    def test_secondary_pointer_is_independent(self) -> None:
+        first = pointer(1)
+        second = pointer(2)
+        self.assertIsNot(first, second)
+        self.assertEqual(second.pointer_id, 2)
+        self.assertIs(pointer(2), second)
 
     def test_bad_button_rejected_before_input(self) -> None:
         with self.assertRaises(InputError):

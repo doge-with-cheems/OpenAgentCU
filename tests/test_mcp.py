@@ -54,6 +54,35 @@ class MCPProtocolTests(unittest.TestCase):
         self.assertEqual(len(tool_definitions()), 18)
         self.assertTrue(all("inputSchema" in tool for tool in tools))
 
+    def test_pointer_schema(self) -> None:
+        tools = {tool["name"]: tool for tool in tool_definitions()}
+        for name in ("mouse_move", "mouse_click", "mouse_drag", "mouse_scroll",
+                     "key_press", "key_hold", "type_text", "mouse_position"):
+            pointer = tools[name]["inputSchema"]["properties"]["pointer"]
+            self.assertEqual(pointer["minimum"], 1)
+            self.assertEqual(pointer["maximum"], 4)
+            self.assertEqual(pointer["default"], 1)
+
+    def test_invalid_pointer_rejected(self) -> None:
+        reply = handle({"jsonrpc": "2.0", "id": 21, "method": "tools/call",
+                        "params": {"name": "mouse_move",
+                                   "arguments": {"x": 0, "y": 0, "pointer": 5}}},
+                       self.store, self.settings)
+        self.assertTrue(reply["result"]["isError"])
+        payload = payload_of(reply)
+        self.assertFalse(payload["ok"])
+        self.assertIn("1..4", payload["error"])
+
+    def test_mouse_position_pointer(self) -> None:
+        reply = handle({"jsonrpc": "2.0", "id": 22, "method": "tools/call",
+                        "params": {"name": "mouse_position",
+                                   "arguments": {"pointer": 2}}},
+                       self.store, self.settings)
+        payload = payload_of(reply)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["pointer"], 2)
+        self.assertIsInstance(payload["x"], int)
+
     def test_screen_info_tool(self) -> None:
         reply = handle({"jsonrpc": "2.0", "id": 7, "method": "tools/call",
                         "params": {"name": "screen_info", "arguments": {}}}, self.store, self.settings)

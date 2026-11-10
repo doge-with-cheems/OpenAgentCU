@@ -108,10 +108,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_input = sub.add_parser("input", parents=[common], help="direct mouse and keyboard control")
     input_sub = p_input.add_subparsers(dest="input_action", metavar="<action>")
 
+    def add_pointer(parser: argparse.ArgumentParser) -> None:
+        parser.add_argument("--pointer", type=int, default=1, metavar="1-4",
+                            help="virtual pointer id (default: 1, max 4)")
+
     p_move = input_sub.add_parser("move", parents=[common], help="move the mouse")
     p_move.add_argument("--x", type=int, required=True)
     p_move.add_argument("--y", type=int, required=True)
     p_move.add_argument("--duration-ms", type=int, default=0)
+    add_pointer(p_move)
     p_move.set_defaults(func=cmd_input)
 
     p_click = input_sub.add_parser("click", parents=[common], help="click the mouse")
@@ -120,6 +125,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_click.add_argument("--button", choices=("left", "right", "middle"), default="left")
     p_click.add_argument("--clicks", type=int, default=1)
     p_click.add_argument("--interval-ms", type=int, default=80)
+    add_pointer(p_click)
     p_click.set_defaults(func=cmd_input)
 
     p_drag = input_sub.add_parser("drag", parents=[common], help="drag the mouse")
@@ -129,6 +135,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_drag.add_argument("--to-y", type=int, required=True)
     p_drag.add_argument("--button", choices=("left", "right", "middle"), default="left")
     p_drag.add_argument("--duration-ms", type=int, default=500)
+    add_pointer(p_drag)
     p_drag.set_defaults(func=cmd_input)
 
     p_scroll = input_sub.add_parser("scroll", parents=[common], help="scroll the mouse wheel")
@@ -136,6 +143,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_scroll.add_argument("--y", type=int, default=None)
     p_scroll.add_argument("--dy", type=int, default=3, help="vertical notches (positive = up)")
     p_scroll.add_argument("--dx", type=int, default=0, help="horizontal notches")
+    add_pointer(p_scroll)
     p_scroll.set_defaults(func=cmd_input)
 
     p_key = input_sub.add_parser("key", parents=[common], help="press, hold or release keys")
@@ -145,10 +153,12 @@ def build_parser() -> argparse.ArgumentParser:
     key_mode.add_argument("--up", metavar="KEYS")
     key_mode.add_argument("--hold", metavar="KEYS")
     p_key.add_argument("--ms", type=int, default=500)
+    add_pointer(p_key)
     p_key.set_defaults(func=cmd_input)
 
     p_type = input_sub.add_parser("type", parents=[common], help="type text into the focused control")
     p_type.add_argument("text")
+    add_pointer(p_type)
     p_type.set_defaults(func=cmd_input)
 
     p_winrun = input_sub.add_parser("winrun", parents=[common], help="ShellExecute app/path/URL (virtual Win+R replacement)")
@@ -157,6 +167,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_winrun.set_defaults(func=cmd_input)
 
     p_pos = input_sub.add_parser("pos", parents=[common], help="print the mouse position")
+    add_pointer(p_pos)
     p_pos.set_defaults(func=cmd_input)
 
     p_screen = input_sub.add_parser("screen", parents=[common], help="print the virtual screen bounds")
@@ -490,41 +501,44 @@ def cmd_input(args: argparse.Namespace, settings: Settings) -> int:
     from . import input as input_mod
 
     action = args.input_action
+    pointer_id = int(getattr(args, "pointer", 1))
+    label = f"[pointer {pointer_id}] " if pointer_id != 1 else ""
     if action == "screen":
         payload = input_mod.screen_info()
         summary = (f"screen {payload['width']}x{payload['height']} "
                    f"at {payload['x']},{payload['y']}")
     elif action == "pos":
-        x, y = input_mod.mouse_position()
-        payload = {"x": x, "y": y}
-        summary = f"mouse at {x},{y}"
+        x, y = input_mod.mouse_position(pointer_id)
+        payload = {"x": x, "y": y, "pointer": pointer_id}
+        summary = f"{label}mouse at {x},{y}"
     elif action == "move":
-        x, y = input_mod.move(args.x, args.y, args.duration_ms)
-        payload = {"x": x, "y": y}
-        summary = f"mouse moved to {x},{y}"
+        x, y = input_mod.move(args.x, args.y, args.duration_ms, pointer_id)
+        payload = {"x": x, "y": y, "pointer": pointer_id}
+        summary = f"{label}mouse moved to {x},{y}"
     elif action == "click":
-        payload = input_mod.click(args.x, args.y, args.button, args.clicks, args.interval_ms)
-        summary = f"clicked {payload['button']} x{payload['clicks']} at {payload['x']},{payload['y']}"
+        payload = input_mod.click(args.x, args.y, args.button, args.clicks,
+                                  args.interval_ms, pointer_id)
+        summary = f"{label}clicked {payload['button']} x{payload['clicks']} at {payload['x']},{payload['y']}"
     elif action == "drag":
         payload = input_mod.drag(args.from_x, args.from_y, args.to_x, args.to_y,
-                                 args.button, args.duration_ms)
-        summary = f"dragged {args.from_x},{args.from_y} -> {args.to_x},{args.to_y}"
+                                 args.button, args.duration_ms, pointer_id)
+        summary = f"{label}dragged {args.from_x},{args.from_y} -> {args.to_x},{args.to_y}"
     elif action == "scroll":
-        payload = input_mod.scroll(args.x, args.y, args.dy, args.dx)
-        summary = f"scrolled dy={payload['dy']} dx={payload['dx']} at {payload['x']},{payload['y']}"
+        payload = input_mod.scroll(args.x, args.y, args.dy, args.dx, pointer_id)
+        summary = f"{label}scrolled dy={payload['dy']} dx={payload['dx']} at {payload['x']},{payload['y']}"
     elif action == "key":
         if args.press is not None:
-            payload = input_mod.key_press(args.press)
+            payload = input_mod.key_press(args.press, pointer_id)
         elif args.down is not None:
-            payload = input_mod.key_down(args.down)
+            payload = input_mod.key_down(args.down, pointer_id)
         elif args.up is not None:
-            payload = input_mod.key_up(args.up)
+            payload = input_mod.key_up(args.up, pointer_id)
         else:
-            payload = input_mod.key_hold(args.hold, args.ms)
-        summary = f"{payload['mode']} {payload['keys']}"
+            payload = input_mod.key_hold(args.hold, args.ms, pointer_id)
+        summary = f"{label}{payload['mode']} {payload['keys']}"
     elif action == "type":
-        payload = input_mod.type_text(args.text)
-        summary = f"typed {payload['chars']} chars"
+        payload = input_mod.type_text(args.text, pointer_id)
+        summary = f"{label}typed {payload['chars']} chars"
     elif action == "winrun":
         payload = input_mod.win_run(args.command, args.wait_ms)
         summary = f"virtual launch: {payload['command']}"

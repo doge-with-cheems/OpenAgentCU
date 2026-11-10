@@ -113,11 +113,12 @@ def tool_definitions() -> list[dict[str, Any]]:
         },
         {
             "name": "mouse_move",
-            "description": "Move the virtual pointer (system cursor is not moved).",
+            "description": "Move a virtual pointer (system cursor is not moved). pointer=1..4, default 1.",
             "inputSchema": _schema({
                 "x": {"type": "integer"},
                 "y": {"type": "integer"},
                 "duration_ms": {"type": "integer", "minimum": 0, "default": 0},
+                "pointer": {"type": "integer", "minimum": 1, "maximum": 4, "default": 1},
             }, required=["x", "y"]),
         },
         {
@@ -129,6 +130,7 @@ def tool_definitions() -> list[dict[str, Any]]:
                 "button": {"type": "string", "enum": ["left", "right", "middle"], "default": "left"},
                 "clicks": {"type": "integer", "minimum": 1, "default": 1},
                 "interval_ms": {"type": "integer", "minimum": 0, "default": 80},
+                "pointer": {"type": "integer", "minimum": 1, "maximum": 4, "default": 1},
             }),
         },
         {
@@ -141,6 +143,7 @@ def tool_definitions() -> list[dict[str, Any]]:
                 "to_y": {"type": "integer"},
                 "button": {"type": "string", "enum": ["left", "right", "middle"], "default": "left"},
                 "duration_ms": {"type": "integer", "minimum": 1, "default": 500},
+                "pointer": {"type": "integer", "minimum": 1, "maximum": 4, "default": 1},
             }, required=["from_x", "from_y", "to_x", "to_y"]),
         },
         {
@@ -151,6 +154,7 @@ def tool_definitions() -> list[dict[str, Any]]:
                 "y": {"type": "integer"},
                 "dy": {"type": "integer", "default": 3},
                 "dx": {"type": "integer", "default": 0},
+                "pointer": {"type": "integer", "minimum": 1, "maximum": 4, "default": 1},
             }),
         },
         {
@@ -158,6 +162,7 @@ def tool_definitions() -> list[dict[str, Any]]:
             "description": "Send keys to the focused window via targeted messages. System Win/Alt+Tab/Ctrl+Shift+Esc are rejected.",
             "inputSchema": _schema({
                 "keys": {"type": "string"},
+                "pointer": {"type": "integer", "minimum": 1, "maximum": 4, "default": 1},
             }, required=["keys"]),
         },
         {
@@ -166,6 +171,7 @@ def tool_definitions() -> list[dict[str, Any]]:
             "inputSchema": _schema({
                 "keys": {"type": "string"},
                 "ms": {"type": "integer", "minimum": 0, "default": 500},
+                "pointer": {"type": "integer", "minimum": 1, "maximum": 4, "default": 1},
             }, required=["keys"]),
         },
         {
@@ -173,6 +179,7 @@ def tool_definitions() -> list[dict[str, Any]]:
             "description": "Type into the focused control via UIA ValuePattern or targeted WM_CHAR (no physical keyboard).",
             "inputSchema": _schema({
                 "text": {"type": "string"},
+                "pointer": {"type": "integer", "minimum": 1, "maximum": 4, "default": 1},
             }, required=["text"]),
         },
         {
@@ -182,8 +189,10 @@ def tool_definitions() -> list[dict[str, Any]]:
         },
         {
             "name": "mouse_position",
-            "description": "Return the current mouse cursor coordinates.",
-            "inputSchema": _schema({}),
+            "description": "Return the selected virtual pointer's coordinates (pointer=1..4, default 1).",
+            "inputSchema": _schema({
+                "pointer": {"type": "integer", "minimum": 1, "maximum": 4, "default": 1},
+            }),
         },
     ]
 
@@ -449,17 +458,23 @@ def _tool_win_run(arguments: dict[str, Any], store: Store, settings: Settings) -
     return {"ok": True, **input_mod.win_run(command, int(arguments.get("wait_ms", 350)))}
 
 
+def _pointer(arguments: dict[str, Any]) -> int:
+    return int(arguments.get("pointer", 1))
+
+
 def _tool_mouse_move(arguments: dict[str, Any], store: Store, settings: Settings) -> dict[str, Any]:
     from .. import input as input_mod
 
+    pointer_id = _pointer(arguments)
     x, y = input_mod.move(int(arguments["x"]), int(arguments["y"]),
-                          int(arguments.get("duration_ms", 0)))
-    return {"ok": True, "x": x, "y": y}
+                          int(arguments.get("duration_ms", 0)), pointer_id)
+    return {"ok": True, "x": x, "y": y, "pointer": pointer_id}
 
 
 def _tool_mouse_click(arguments: dict[str, Any], store: Store, settings: Settings) -> dict[str, Any]:
     from .. import input as input_mod
 
+    pointer_id = _pointer(arguments)
     x = arguments.get("x")
     y = arguments.get("y")
     result = input_mod.click(
@@ -468,6 +483,7 @@ def _tool_mouse_click(arguments: dict[str, Any], store: Store, settings: Setting
         str(arguments.get("button", "left")),
         int(arguments.get("clicks", 1)),
         int(arguments.get("interval_ms", 80)),
+        pointer_id,
     )
     return {"ok": True, **result}
 
@@ -475,11 +491,13 @@ def _tool_mouse_click(arguments: dict[str, Any], store: Store, settings: Setting
 def _tool_mouse_drag(arguments: dict[str, Any], store: Store, settings: Settings) -> dict[str, Any]:
     from .. import input as input_mod
 
+    pointer_id = _pointer(arguments)
     result = input_mod.drag(
         int(arguments["from_x"]), int(arguments["from_y"]),
         int(arguments["to_x"]), int(arguments["to_y"]),
         str(arguments.get("button", "left")),
         int(arguments.get("duration_ms", 500)),
+        pointer_id,
     )
     return {"ok": True, **result}
 
@@ -487,6 +505,7 @@ def _tool_mouse_drag(arguments: dict[str, Any], store: Store, settings: Settings
 def _tool_mouse_scroll(arguments: dict[str, Any], store: Store, settings: Settings) -> dict[str, Any]:
     from .. import input as input_mod
 
+    pointer_id = _pointer(arguments)
     x = arguments.get("x")
     y = arguments.get("y")
     result = input_mod.scroll(
@@ -494,6 +513,7 @@ def _tool_mouse_scroll(arguments: dict[str, Any], store: Store, settings: Settin
         int(y) if y is not None else None,
         int(arguments.get("dy", 3)),
         int(arguments.get("dx", 0)),
+        pointer_id,
     )
     return {"ok": True, **result}
 
@@ -501,19 +521,21 @@ def _tool_mouse_scroll(arguments: dict[str, Any], store: Store, settings: Settin
 def _tool_key_press(arguments: dict[str, Any], store: Store, settings: Settings) -> dict[str, Any]:
     from .. import input as input_mod
 
-    return {"ok": True, **input_mod.key_press(str(arguments["keys"]))}
+    return {"ok": True, **input_mod.key_press(str(arguments["keys"]), _pointer(arguments))}
 
 
 def _tool_key_hold(arguments: dict[str, Any], store: Store, settings: Settings) -> dict[str, Any]:
     from .. import input as input_mod
 
-    return {"ok": True, **input_mod.key_hold(str(arguments["keys"]), int(arguments.get("ms", 500)))}
+    return {"ok": True, **input_mod.key_hold(str(arguments["keys"]),
+                                             int(arguments.get("ms", 500)),
+                                             _pointer(arguments))}
 
 
 def _tool_type_text(arguments: dict[str, Any], store: Store, settings: Settings) -> dict[str, Any]:
     from .. import input as input_mod
 
-    return {"ok": True, **input_mod.type_text(str(arguments["text"]))}
+    return {"ok": True, **input_mod.type_text(str(arguments["text"]), _pointer(arguments))}
 
 
 def _tool_screen_info(arguments: dict[str, Any], store: Store, settings: Settings) -> dict[str, Any]:
@@ -525,8 +547,9 @@ def _tool_screen_info(arguments: dict[str, Any], store: Store, settings: Setting
 def _tool_mouse_position(arguments: dict[str, Any], store: Store, settings: Settings) -> dict[str, Any]:
     from .. import input as input_mod
 
-    x, y = input_mod.mouse_position()
-    return {"ok": True, "x": x, "y": y}
+    pointer_id = _pointer(arguments)
+    x, y = input_mod.mouse_position(pointer_id)
+    return {"ok": True, "x": x, "y": y, "pointer": pointer_id}
 
 
 TOOLS = {

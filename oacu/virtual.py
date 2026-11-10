@@ -44,6 +44,7 @@ SM_CXVIRTUALSCREEN = 78
 SM_CYVIRTUALSCREEN = 79
 
 VIRTUAL_CURSOR = "▣"
+MAX_POINTERS = 4
 
 GWL_EXSTYLE = -20
 WS_EX_LAYERED = 0x00080000
@@ -178,7 +179,10 @@ def _focus_window() -> int:
 
 
 class _Overlay:
-    """Click-through ▣ overlay, hosted in a separate main-thread Tk process."""
+    """Click-through ▣ overlay, hosted in a separate main-thread Tk process.
+
+    One process hosts up to :data:`MAX_POINTERS` independent pointer windows.
+    """
 
     def __init__(self) -> None:
         self._proc: subprocess.Popen[str] | None = None
@@ -209,24 +213,39 @@ class _Overlay:
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
 
-    def show(self, x: int, y: int, hold_ms: int = 900) -> None:
+    def _send(self, payload: dict[str, object]) -> bool:
+        line = json.dumps(payload) + "\n"
+        for _attempt in range(2):
+            try:
+                if self._proc is None or self._proc.poll() is not None:
+                    self._start()
+                assert self._proc is not None and self._proc.stdin is not None
+                self._proc.stdin.write(line)
+                self._proc.stdin.flush()
+                return True
+            except (OSError, ValueError, AssertionError):
+                self._proc = None
+        return False
+
+    def show(self, x: int, y: int, hold_ms: int = 900, pointer_id: int = 1) -> None:
         if self.disabled:
             return
         with self._lock:
             if self._failed:
                 return
-            payload = json.dumps({"x": int(x), "y": int(y), "ms": int(hold_ms)}) + "\n"
-            for _attempt in range(2):
-                try:
-                    if self._proc is None or self._proc.poll() is not None:
-                        self._start()
-                    assert self._proc is not None and self._proc.stdin is not None
-                    self._proc.stdin.write(payload)
-                    self._proc.stdin.flush()
-                    return
-                except (OSError, ValueError, AssertionError):
-                    self._proc = None
-            self._failed = True
+            payload = {"id": int(pointer_id), "x": int(x), "y": int(y),
+                       "ms": int(hold_ms)}
+            if not self._send(payload):
+                self._failed = True
+
+    def hide(self, pointer_id: int = 1) -> None:
+        if self.disabled:
+            return
+        with self._lock:
+            if self._failed:
+                return
+            if not self._send({"id": int(pointer_id), "hide": True}):
+                self._failed = True
 
 
 def _state_path():
@@ -235,19 +254,52 @@ def _state_path():
     return home_dir() / "pointer.json"
 
 
-def _load_state() -> dict[str, int]:
+_OVERLAY: _Overlay | None = None
+
+
+def _overlay() -> _Overlay:
+    """Share one overlay process across all virtual pointers."""
+    global _OVERLAY
+    if _OVERLAY is None:
+        _OVERLAY = _Overlay()
+    return _OVERLAY
+
+
+def _parse_state(value: object) -> dict[str, int]:
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, int] = {}
+    for key in ("x", "y", "hwnd"):
+        item = value.get(key)
+        if isinstance(item, int):
+            result[key] = item
+    return result
+
+
+def _load_state() -> dict[int, dict[str, int]]:
+    """Load per-pointer state; the 2.0.x single-pointer format maps to id 1."""
     try:
         data = json.loads(_state_path().read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
     if not isinstance(data, dict):
         return {}
-    result: dict[str, int] = {}
-    for key in ("x", "y", "hwnd"):
-        value = data.get(key)
-        if isinstance(value, int):
-            result[key] = value
-    return result
+    pointers = data.get("pointers")
+    if isinstance(pointers, dict):
+        states: dict[int, dict[str, int]] = {}
+        for key, value in pointers.items():
+            try:
+                pointer_id = int(key)
+            except (TypeError, ValueError):
+                continue
+            if not 1 <= pointer_id <= MAX_POINTERS:
+                continue
+            state = _parse_state(value)
+            if state:
+                states[pointer_id] = state
+        return states
+    legacy = _parse_state(data)
+    return {1: legacy} if legacy else {}
 
 
 def _is_window(handle: int) -> bool:
@@ -260,11 +312,25 @@ def _is_window(handle: int) -> bool:
 
 
 class VirtualPointer:
-    def __init__(self) -> None:
+    def __init__(self, pointer_id: int = 1) -> None:
+        try:
+            pointer_id = int(pointer_id)
+        except (TypeError, ValueError) as exc:
+            raise VirtualInputError("虚拟指针编号必须是整数") from exc
+        if not 1 <= pointer_id <= MAX_POINTERS:
+            raise VirtualInputError(
+                f"虚拟指针编号必须在 1..{MAX_POINTERS} 之间: {pointer_id}")
+        self.pointer_id = pointer_id
         self.x, self.y = physical_mouse_position()
+        if pointer_id != 1:
+            # Secondary pointers start at the centre instead of stacking on the
+            # user's physical cursor.
+            info = screen_info()
+            self.x = info["x"] + info["width"] // 2
+            self.y = info["y"] + info["height"] // 2
         self.last_hwnd = 0
         self.last_point: tuple[int, int] | None = None
-        saved = _load_state()
+        saved = _load_state().get(pointer_id, {})
         if saved:
             info = screen_info()
             x = saved.get("x", self.x)
@@ -275,14 +341,16 @@ class VirtualPointer:
             if _is_window(saved.get("hwnd", 0)):
                 self.last_hwnd = saved["hwnd"]
         self.last_point = (self.x, self.y)
-        self.overlay = _Overlay()
+        self.overlay = _overlay()
 
     def _save(self) -> None:
         try:
-            _state_path().write_text(
-                json.dumps({"x": self.x, "y": self.y, "hwnd": self.last_hwnd}),
-                encoding="utf-8",
-            )
+            states = _load_state()
+            states[self.pointer_id] = {"x": self.x, "y": self.y,
+                                       "hwnd": self.last_hwnd}
+            payload = {"pointers": {str(key): value
+                                    for key, value in sorted(states.items())}}
+            _state_path().write_text(json.dumps(payload), encoding="utf-8")
         except OSError:
             pass
 
@@ -290,7 +358,10 @@ class VirtualPointer:
         return self.x, self.y
 
     def show(self, hold_ms: int = 900) -> None:
-        self.overlay.show(self.x, self.y, hold_ms)
+        self.overlay.show(self.x, self.y, hold_ms, self.pointer_id)
+
+    def hide(self) -> None:
+        self.overlay.hide(self.pointer_id)
 
     def move(self, x: int, y: int, duration_ms: int = 0) -> tuple[int, int]:
         x, y = validate_point(x, y)
@@ -329,7 +400,8 @@ class VirtualPointer:
             self.show()
             self._save()
             return {"x": self.x, "y": self.y, "button": key, "clicks": max(1, int(clicks)),
-                    "mode": "uia_pattern", "method": focus.get("method")}
+                    "mode": "uia_pattern", "method": focus.get("method"),
+                    "pointer": self.pointer_id}
         handle = focus_handle or _window_at(self.x, self.y)
         if not handle:
             raise VirtualInputError(f"坐标 {self.x},{self.y} 没有窗口")
@@ -345,7 +417,7 @@ class VirtualPointer:
         self.show()
         self._save()
         return {"x": self.x, "y": self.y, "button": key, "clicks": count,
-                "mode": "virtual", "hwnd": handle}
+                "mode": "virtual", "hwnd": handle, "pointer": self.pointer_id}
 
     def drag(self, from_x: int, from_y: int, to_x: int, to_y: int,
              button: str = "left", duration_ms: int = 500) -> dict[str, object]:
@@ -381,7 +453,8 @@ class VirtualPointer:
         self.show()
         self._save()
         return {"from": [from_x, from_y], "to": [to_x, to_y],
-                "button": key, "mode": "virtual", "hwnd": handle}
+                "button": key, "mode": "virtual", "hwnd": handle,
+                "pointer": self.pointer_id}
 
     def scroll(self, x: int | None = None, y: int | None = None,
                dy: int = 3, dx: int = 0) -> dict[str, object]:
@@ -402,7 +475,8 @@ class VirtualPointer:
         if dx:
             _post(handle, WM_MOUSEHWHEEL, (dx * 120 & 0xFFFF) << 16, screen_point)
         self.show()
-        return {"x": self.x, "y": self.y, "dy": dy, "dx": dx, "mode": "virtual"}
+        return {"x": self.x, "y": self.y, "dy": dy, "dx": dx, "mode": "virtual",
+                "pointer": self.pointer_id}
 
     def _focused_handle(self) -> int:
         handle = _focus_window()
@@ -426,7 +500,8 @@ class VirtualPointer:
                 if name in mods:
                     _post(handle, WM_KEYUP, MOD_VK[name], 0xC0000001)
         self.show()
-        return {"keys": keys, "mode": "virtual_press", "hwnd": handle}
+        return {"keys": keys, "mode": "virtual_press", "hwnd": handle,
+                "pointer": self.pointer_id}
 
     def key_down(self, keys: str) -> dict[str, object]:
         sequence = _parse_sequence(keys)
@@ -436,7 +511,8 @@ class VirtualPointer:
         handle = self.last_hwnd or self._focused_handle()
         _emit_virtual(handle, sequence, down=True)
         self.show()
-        return {"keys": keys, "mode": "virtual_down", "hwnd": handle}
+        return {"keys": keys, "mode": "virtual_down", "hwnd": handle,
+                "pointer": self.pointer_id}
 
     def key_up(self, keys: str) -> dict[str, object]:
         sequence = _parse_sequence(keys)
@@ -445,7 +521,8 @@ class VirtualPointer:
         handle = self.last_hwnd or self._focused_handle()
         _emit_virtual(handle, sequence, down=False)
         self.show()
-        return {"keys": keys, "mode": "virtual_up", "hwnd": handle}
+        return {"keys": keys, "mode": "virtual_up", "hwnd": handle,
+                "pointer": self.pointer_id}
 
     def key_hold(self, keys: str, ms: int = 500) -> dict[str, object]:
         sequence = _parse_sequence(keys)
@@ -460,7 +537,7 @@ class VirtualPointer:
         finally:
             _emit_virtual(handle, sequence, down=False)
         return {"keys": keys, "mode": "virtual_hold", "ms": max(0, int(ms)),
-                "hwnd": handle}
+                "hwnd": handle, "pointer": self.pointer_id}
 
     @staticmethod
     def _reject_system_combo(sequence: list[tuple[int, frozenset[str]]]) -> None:
@@ -491,12 +568,14 @@ class VirtualPointer:
                 })
                 if response.get("ok"):
                     self.show()
-                    return {"text": text, "chars": len(text), "mode": "point_value"}
+                    return {"text": text, "chars": len(text), "mode": "point_value",
+                            "pointer": self.pointer_id}
                 handle = int(response.get("hwnd") or 0)
             response = _run_uia_act({"op": "focused_set_value", "value": text})
             if response.get("ok"):
                 self.show()
-                return {"text": text, "chars": len(text), "mode": "uia_value"}
+                return {"text": text, "chars": len(text), "mode": "uia_value",
+                        "pointer": self.pointer_id}
             handle = self.last_hwnd or handle or int(response.get("hwnd") or 0)
         except Exception:  # noqa: BLE001 - fall through to targeted WM_CHAR
             pass
@@ -512,7 +591,8 @@ class VirtualPointer:
                 continue
             _post(handle, WM_CHAR, unit, 1)
         self.show()
-        return {"text": text, "chars": len(text), "mode": "wm_char", "hwnd": handle}
+        return {"text": text, "chars": len(text), "mode": "wm_char", "hwnd": handle,
+                "pointer": self.pointer_id}
 
 
 def _emit_virtual(handle: int, sequence: list[tuple[int, frozenset[str]]],
@@ -531,57 +611,67 @@ def _emit_virtual(handle: int, sequence: list[tuple[int, frozenset[str]]],
                     _post(handle, WM_KEYUP, MOD_VK[name], 0xC0000001)
 
 
-_POINTER: VirtualPointer | None = None
+_POINTERS: dict[int, VirtualPointer] = {}
 
 
-def pointer() -> VirtualPointer:
-    global _POINTER
-    if _POINTER is None:
-        _POINTER = VirtualPointer()
-    return _POINTER
+def pointer(pointer_id: int = 1) -> VirtualPointer:
+    try:
+        pointer_id = int(pointer_id)
+    except (TypeError, ValueError) as exc:
+        raise VirtualInputError("虚拟指针编号必须是整数") from exc
+    if not 1 <= pointer_id <= MAX_POINTERS:
+        raise VirtualInputError(
+            f"虚拟指针编号必须在 1..{MAX_POINTERS} 之间: {pointer_id}")
+    if pointer_id not in _POINTERS:
+        _POINTERS[pointer_id] = VirtualPointer(pointer_id)
+    return _POINTERS[pointer_id]
 
 
-def mouse_position() -> tuple[int, int]:
-    return pointer().position()
+def mouse_position(pointer_id: int = 1) -> tuple[int, int]:
+    return pointer(pointer_id).position()
 
 
-def move(x: int, y: int, duration_ms: int = 0) -> tuple[int, int]:
-    return pointer().move(x, y, duration_ms)
+def move(x: int, y: int, duration_ms: int = 0,
+         pointer_id: int = 1) -> tuple[int, int]:
+    return pointer(pointer_id).move(x, y, duration_ms)
 
 
 def click(x: int | None = None, y: int | None = None, button: str = "left",
-          clicks: int = 1, interval_ms: int = 80) -> dict[str, object]:
-    return pointer().click(x, y, button, clicks, interval_ms)
+          clicks: int = 1, interval_ms: int = 80,
+          pointer_id: int = 1) -> dict[str, object]:
+    return pointer(pointer_id).click(x, y, button, clicks, interval_ms)
 
 
 def drag(from_x: int, from_y: int, to_x: int, to_y: int,
-         button: str = "left", duration_ms: int = 500) -> dict[str, object]:
-    return pointer().drag(from_x, from_y, to_x, to_y, button, duration_ms)
+         button: str = "left", duration_ms: int = 500,
+         pointer_id: int = 1) -> dict[str, object]:
+    return pointer(pointer_id).drag(from_x, from_y, to_x, to_y, button, duration_ms)
 
 
 def scroll(x: int | None = None, y: int | None = None,
-           dy: int = 3, dx: int = 0) -> dict[str, object]:
-    return pointer().scroll(x, y, dy, dx)
+           dy: int = 3, dx: int = 0,
+           pointer_id: int = 1) -> dict[str, object]:
+    return pointer(pointer_id).scroll(x, y, dy, dx)
 
 
-def key_press(keys: str) -> dict[str, object]:
-    return pointer().key_press(keys)
+def key_press(keys: str, pointer_id: int = 1) -> dict[str, object]:
+    return pointer(pointer_id).key_press(keys)
 
 
-def key_down(keys: str) -> dict[str, object]:
-    return pointer().key_down(keys)
+def key_down(keys: str, pointer_id: int = 1) -> dict[str, object]:
+    return pointer(pointer_id).key_down(keys)
 
 
-def key_up(keys: str) -> dict[str, object]:
-    return pointer().key_up(keys)
+def key_up(keys: str, pointer_id: int = 1) -> dict[str, object]:
+    return pointer(pointer_id).key_up(keys)
 
 
-def key_hold(keys: str, ms: int = 500) -> dict[str, object]:
-    return pointer().key_hold(keys, ms)
+def key_hold(keys: str, ms: int = 500, pointer_id: int = 1) -> dict[str, object]:
+    return pointer(pointer_id).key_hold(keys, ms)
 
 
-def type_text(text: str) -> dict[str, object]:
-    return pointer().type_text(text)
+def type_text(text: str, pointer_id: int = 1) -> dict[str, object]:
+    return pointer(pointer_id).type_text(text)
 
 
 def launch_app(app: str) -> str:
