@@ -9,7 +9,7 @@
 | `desktop_scan`（65 个可见元素，默认 80 行上限） | 2,523 | ~720 |
 | `desktop_find("开始")` | 108 | ~31 |
 | `launch_app` / `win_run` / `key_press` | 40–150 | 15–45 |
-| 18 个工具的 schema（每轮都会随请求发送） | 6,190 | ~1,769 |
+| 19 个工具的 schema（每轮都会随请求发送） | 6,190 | ~1,769 |
 
 2.0.0 的 `desktop_scan` 只回 `content.text` 里的紧凑表，过滤无名 Pane/Group，默认 80 行；不再返回 `structuredContent`。
 

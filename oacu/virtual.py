@@ -109,6 +109,17 @@ def validate_point(x: int, y: int) -> tuple[int, int]:
     return x, y
 
 
+def validate_pointer(pointer_id: int = 1) -> int:
+    try:
+        pointer_id = int(pointer_id)
+    except (TypeError, ValueError) as exc:
+        raise VirtualInputError("虚拟指针编号必须是整数") from exc
+    if not 1 <= pointer_id <= MAX_POINTERS:
+        raise VirtualInputError(
+            f"虚拟指针编号必须在 1..{MAX_POINTERS} 之间: {pointer_id}")
+    return pointer_id
+
+
 def physical_mouse_position() -> tuple[int, int]:
     point = wintypes.POINT()
     _user32().GetCursorPos(ctypes.byref(point))
@@ -139,6 +150,16 @@ def _parse_sequence(keys: str) -> list[tuple[int, frozenset[str]]]:
         return parse_keys(canonical_keys(keys))
     except KeyParseError as exc:
         raise VirtualInputError(str(exc)) from exc
+
+
+def validate_keys(keys: str) -> str:
+    """Validate a key expression, including the virtual-mode system-key ban."""
+    text = str(keys or "").strip()
+    sequence = _parse_sequence(text)
+    if not sequence:
+        raise VirtualInputError(f"无法识别按键: {keys}")
+    VirtualPointer._reject_system_combo(sequence)
+    return canonical_keys(text)
 
 
 class GUITHREADINFO(ctypes.Structure):
@@ -313,13 +334,7 @@ def _is_window(handle: int) -> bool:
 
 class VirtualPointer:
     def __init__(self, pointer_id: int = 1) -> None:
-        try:
-            pointer_id = int(pointer_id)
-        except (TypeError, ValueError) as exc:
-            raise VirtualInputError("虚拟指针编号必须是整数") from exc
-        if not 1 <= pointer_id <= MAX_POINTERS:
-            raise VirtualInputError(
-                f"虚拟指针编号必须在 1..{MAX_POINTERS} 之间: {pointer_id}")
+        pointer_id = validate_pointer(pointer_id)
         self.pointer_id = pointer_id
         self.x, self.y = physical_mouse_position()
         if pointer_id != 1:
@@ -401,7 +416,7 @@ class VirtualPointer:
             self._save()
             return {"x": self.x, "y": self.y, "button": key, "clicks": max(1, int(clicks)),
                     "mode": "uia_pattern", "method": focus.get("method"),
-                    "pointer": self.pointer_id}
+                    "pointer": self.pointer_id, "delivered": True}
         handle = focus_handle or _window_at(self.x, self.y)
         if not handle:
             raise VirtualInputError(f"坐标 {self.x},{self.y} 没有窗口")
@@ -409,15 +424,17 @@ class VirtualPointer:
         cx, cy = _client_point(handle, self.x, self.y)
         down, up, flag = BUTTONS[key]
         count = max(1, int(clicks))
+        delivered = True
         for index in range(count):
-            _post(handle, down, flag, _lparam(cx, cy))
-            _post(handle, up, 0, _lparam(cx, cy))
+            delivered &= _post(handle, down, flag, _lparam(cx, cy))
+            delivered &= _post(handle, up, 0, _lparam(cx, cy))
             if index + 1 < count:
                 time.sleep(max(0, int(interval_ms)) / 1000.0)
         self.show()
         self._save()
         return {"x": self.x, "y": self.y, "button": key, "clicks": count,
-                "mode": "virtual", "hwnd": handle, "pointer": self.pointer_id}
+                "mode": "virtual", "hwnd": handle, "pointer": self.pointer_id,
+                "delivered": delivered}
 
     def drag(self, from_x: int, from_y: int, to_x: int, to_y: int,
              button: str = "left", duration_ms: int = 500) -> dict[str, object]:
@@ -433,7 +450,7 @@ class VirtualPointer:
         self.last_hwnd = handle
         down, up, flag = BUTTONS[key]
         sx, sy = _client_point(handle, from_x, from_y)
-        _post(handle, down, flag, _lparam(sx, sy))
+        delivered = _post(handle, down, flag, _lparam(sx, sy))
         try:
             steps = max(1, min(120, int(duration_ms) // 12))
             delay = max(0.001, (int(duration_ms) / 1000.0) / steps)
@@ -442,19 +459,21 @@ class VirtualPointer:
                 x = round(from_x + (to_x - from_x) * ratio)
                 y = round(from_y + (to_y - from_y) * ratio)
                 cx, cy = _client_point(handle, x, y)
-                _post(handle, WM_MOUSEMOVE, flag, _lparam(cx, cy))
+                if not _post(handle, WM_MOUSEMOVE, flag, _lparam(cx, cy)):
+                    delivered = False
                 self.x, self.y = x, y
                 time.sleep(delay)
         finally:
             ex, ey = _client_point(handle, to_x, to_y)
-            _post(handle, up, 0, _lparam(ex, ey))
+            if not _post(handle, up, 0, _lparam(ex, ey)):
+                delivered = False
             self.x, self.y = to_x, to_y
         self.last_point = (self.x, self.y)
         self.show()
         self._save()
         return {"from": [from_x, from_y], "to": [to_x, to_y],
                 "button": key, "mode": "virtual", "hwnd": handle,
-                "pointer": self.pointer_id}
+                "pointer": self.pointer_id, "delivered": delivered}
 
     def scroll(self, x: int | None = None, y: int | None = None,
                dy: int = 3, dx: int = 0) -> dict[str, object]:
@@ -470,13 +489,14 @@ class VirtualPointer:
         if not handle:
             raise VirtualInputError(f"坐标 {self.x},{self.y} 没有窗口")
         screen_point = _lparam(self.x, self.y)
+        delivered = True
         if dy:
-            _post(handle, WM_MOUSEWHEEL, (dy * 120 & 0xFFFF) << 16, screen_point)
+            delivered &= _post(handle, WM_MOUSEWHEEL, (dy * 120 & 0xFFFF) << 16, screen_point)
         if dx:
-            _post(handle, WM_MOUSEHWHEEL, (dx * 120 & 0xFFFF) << 16, screen_point)
+            delivered &= _post(handle, WM_MOUSEHWHEEL, (dx * 120 & 0xFFFF) << 16, screen_point)
         self.show()
         return {"x": self.x, "y": self.y, "dy": dy, "dx": dx, "mode": "virtual",
-                "pointer": self.pointer_id}
+                "pointer": self.pointer_id, "delivered": delivered}
 
     def _focused_handle(self) -> int:
         handle = _focus_window()
@@ -490,18 +510,19 @@ class VirtualPointer:
             raise VirtualInputError(f"无法识别按键: {keys}")
         self._reject_system_combo(sequence)
         handle = self.last_hwnd or self._focused_handle()
+        delivered = True
         for vk, mods in sequence:
             for name in MOD_ORDER:
                 if name in mods:
-                    _post(handle, WM_KEYDOWN, MOD_VK[name], 1)
-            _post(handle, WM_KEYDOWN, vk, 1)
-            _post(handle, WM_KEYUP, vk, 0xC0000001)
+                    delivered &= _post(handle, WM_KEYDOWN, MOD_VK[name], 1)
+            delivered &= _post(handle, WM_KEYDOWN, vk, 1)
+            delivered &= _post(handle, WM_KEYUP, vk, 0xC0000001)
             for name in reversed(MOD_ORDER):
                 if name in mods:
-                    _post(handle, WM_KEYUP, MOD_VK[name], 0xC0000001)
+                    delivered &= _post(handle, WM_KEYUP, MOD_VK[name], 0xC0000001)
         self.show()
         return {"keys": keys, "mode": "virtual_press", "hwnd": handle,
-                "pointer": self.pointer_id}
+                "pointer": self.pointer_id, "delivered": delivered}
 
     def key_down(self, keys: str) -> dict[str, object]:
         sequence = _parse_sequence(keys)
@@ -509,20 +530,20 @@ class VirtualPointer:
             raise VirtualInputError(f"无法识别按键: {keys}")
         self._reject_system_combo(sequence)
         handle = self.last_hwnd or self._focused_handle()
-        _emit_virtual(handle, sequence, down=True)
+        delivered = _emit_virtual(handle, sequence, down=True)
         self.show()
         return {"keys": keys, "mode": "virtual_down", "hwnd": handle,
-                "pointer": self.pointer_id}
+                "pointer": self.pointer_id, "delivered": delivered}
 
     def key_up(self, keys: str) -> dict[str, object]:
         sequence = _parse_sequence(keys)
         if not sequence:
             raise VirtualInputError(f"无法识别按键: {keys}")
         handle = self.last_hwnd or self._focused_handle()
-        _emit_virtual(handle, sequence, down=False)
+        delivered = _emit_virtual(handle, sequence, down=False)
         self.show()
         return {"keys": keys, "mode": "virtual_up", "hwnd": handle,
-                "pointer": self.pointer_id}
+                "pointer": self.pointer_id, "delivered": delivered}
 
     def key_hold(self, keys: str, ms: int = 500) -> dict[str, object]:
         sequence = _parse_sequence(keys)
@@ -530,14 +551,16 @@ class VirtualPointer:
             raise VirtualInputError(f"无法识别按键: {keys}")
         self._reject_system_combo(sequence)
         handle = self.last_hwnd or self._focused_handle()
-        _emit_virtual(handle, sequence, down=True)
+        delivered = _emit_virtual(handle, sequence, down=True)
         self.show(hold_ms=max(900, int(ms)))
         try:
             time.sleep(max(0, int(ms)) / 1000.0)
         finally:
-            _emit_virtual(handle, sequence, down=False)
+            if not _emit_virtual(handle, sequence, down=False):
+                delivered = False
         return {"keys": keys, "mode": "virtual_hold", "ms": max(0, int(ms)),
-                "hwnd": handle, "pointer": self.pointer_id}
+                "hwnd": handle, "pointer": self.pointer_id,
+                "delivered": delivered}
 
     @staticmethod
     def _reject_system_combo(sequence: list[tuple[int, frozenset[str]]]) -> None:
@@ -552,34 +575,36 @@ class VirtualPointer:
                 raise VirtualInputError(
                     "虚拟模式不支持 Ctrl+Shift+Esc（安全界面）；请用 launch_app")
 
-    def type_text(self, text: str) -> dict[str, object]:
+    def type_text(self, text: str, replace: bool = True) -> dict[str, object]:
         text = str(text)
         if text == "":
             raise VirtualInputError("输入文本不能为空")
         handle = 0
-        try:
-            from .interpreter import _run_uia_act
+        if replace:
+            try:
+                from .interpreter import _run_uia_act
 
-            if self.last_point:
-                response = _run_uia_act({
-                    "op": "set_value_point",
-                    "point": [self.last_point[0], self.last_point[1]],
-                    "value": text,
-                })
+                if self.last_point:
+                    response = _run_uia_act({
+                        "op": "set_value_point",
+                        "point": [self.last_point[0], self.last_point[1]],
+                        "value": text,
+                    })
+                    if response.get("ok"):
+                        self.show()
+                        return {"text": text, "chars": len(text), "mode": "point_value",
+                                "pointer": self.pointer_id, "delivered": True}
+                    handle = int(response.get("hwnd") or 0)
+                response = _run_uia_act({"op": "focused_set_value", "value": text})
                 if response.get("ok"):
                     self.show()
-                    return {"text": text, "chars": len(text), "mode": "point_value",
-                            "pointer": self.pointer_id}
-                handle = int(response.get("hwnd") or 0)
-            response = _run_uia_act({"op": "focused_set_value", "value": text})
-            if response.get("ok"):
-                self.show()
-                return {"text": text, "chars": len(text), "mode": "uia_value",
-                        "pointer": self.pointer_id}
-            handle = self.last_hwnd or handle or int(response.get("hwnd") or 0)
-        except Exception:  # noqa: BLE001 - fall through to targeted WM_CHAR
-            pass
+                    return {"text": text, "chars": len(text), "mode": "uia_value",
+                            "pointer": self.pointer_id, "delivered": True}
+                handle = self.last_hwnd or handle or int(response.get("hwnd") or 0)
+            except Exception:  # noqa: BLE001 - fall through to targeted WM_CHAR
+                pass
         handle = handle or self.last_hwnd or self._focused_handle()
+        delivered = True
         for char in text:
             if char in ("\n", "\r"):
                 unit = 0x0D
@@ -587,41 +612,45 @@ class VirtualPointer:
                 chunk = char.encode("utf-16-le")
                 for offset in range(0, len(chunk), 2):
                     unit = chunk[offset] | (chunk[offset + 1] << 8)
-                    _post(handle, WM_CHAR, unit, 1)
+                    delivered &= _post(handle, WM_CHAR, unit, 1)
                 continue
-            _post(handle, WM_CHAR, unit, 1)
+            delivered &= _post(handle, WM_CHAR, unit, 1)
         self.show()
         return {"text": text, "chars": len(text), "mode": "wm_char", "hwnd": handle,
-                "pointer": self.pointer_id}
+                "pointer": self.pointer_id, "delivered": delivered}
 
 
 def _emit_virtual(handle: int, sequence: list[tuple[int, frozenset[str]]],
-                  *, down: bool) -> None:
+                  *, down: bool) -> bool:
+    delivered = True
     if down:
         for vk, mods in sequence:
             for name in MOD_ORDER:
                 if name in mods:
-                    _post(handle, WM_KEYDOWN, MOD_VK[name], 1)
-            _post(handle, WM_KEYDOWN, vk, 1)
+                    delivered &= _post(handle, WM_KEYDOWN, MOD_VK[name], 1)
+            delivered &= _post(handle, WM_KEYDOWN, vk, 1)
     else:
         for vk, mods in reversed(sequence):
-            _post(handle, WM_KEYUP, vk, 0xC0000001)
+            delivered &= _post(handle, WM_KEYUP, vk, 0xC0000001)
             for name in reversed(MOD_ORDER):
                 if name in mods:
-                    _post(handle, WM_KEYUP, MOD_VK[name], 0xC0000001)
+                    delivered &= _post(handle, WM_KEYUP, MOD_VK[name], 0xC0000001)
+    return delivered
 
 
 _POINTERS: dict[int, VirtualPointer] = {}
+_POINTER_LOCKS: dict[int, threading.Lock] = {}
+
+
+def pointer_lock(pointer_id: int = 1) -> threading.Lock:
+    pointer_id = validate_pointer(pointer_id)
+    if pointer_id not in _POINTER_LOCKS:
+        _POINTER_LOCKS[pointer_id] = threading.Lock()
+    return _POINTER_LOCKS[pointer_id]
 
 
 def pointer(pointer_id: int = 1) -> VirtualPointer:
-    try:
-        pointer_id = int(pointer_id)
-    except (TypeError, ValueError) as exc:
-        raise VirtualInputError("虚拟指针编号必须是整数") from exc
-    if not 1 <= pointer_id <= MAX_POINTERS:
-        raise VirtualInputError(
-            f"虚拟指针编号必须在 1..{MAX_POINTERS} 之间: {pointer_id}")
+    pointer_id = validate_pointer(pointer_id)
     if pointer_id not in _POINTERS:
         _POINTERS[pointer_id] = VirtualPointer(pointer_id)
     return _POINTERS[pointer_id]

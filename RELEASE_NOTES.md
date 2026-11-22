@@ -1,37 +1,44 @@
-# OpenAgentCU 2.1.0
+# OpenAgentCU 2.2.0
 
-2.1.0：虚拟游标 **面积缩小 50%**（36×36），并支持 **最多 4 个独立虚拟指针**；
-默认仍只使用 1 个。虚拟指针与定向 UIA/窗口消息的边界保持不变：不移动系统光标、
-不注入全局键鼠。
+2.2.0：新增**中间层操作链**。模型先写 6–12 步操作链，OpenCU 整链校验后批量执行；
+每条链绑定一个虚拟指针（1–4），各指针的坐标、目标窗口和链状态互相独立。
+虚拟指针边界不变：不移动系统光标、不注入全局键鼠。
 
-## 2.1.0 变更
+## 2.2.0 变更
+
+- 新增 `oacu/chain.py`：操作链解析、整链预检、顺序执行、紧凑结果
+- 新增 MCP 工具 `chain_run`；新增 CLI `oacu chain run`
+- 支持 7 种步骤：`move/click/drag/scroll/key/type/wait`
+- 建议 6–12 步，最多 32 步；超出建议范围只提示，不阻断
+- 整链预检：未知字段/操作、坐标、按键系统组合键、目标窗口前置条件一次校验，
+  失败时 `executed=0`，不会产生部分副作用
+- `key`/`type` 要求链内先有 `click`/`drag`，避免把按键发到上次会话缓存的窗口
+- `scroll` 使用 `direction`，消除 dy 正负方向歧义；`type.replace=false` 可追加
+- 默认 `stop_on_error=true`；`dry_run` 只返回计划/预计耗时，不创建虚拟指针
+- 每指针独立锁；链级超时（默认 30s）；返回 `results/state/resume_from/partial`
+- `chain_id` 120 秒幂等，避免客户端超时重发导致重复点击
+- 定向消息投递失败（`delivered=false`）计为步骤失败，不再“假成功”
+- 更新全局 `opencu` 技能，加入操作链写法与限制
+
+## 2.1.0
 
 - `▣` 游标窗口与字号减半：从 72×72 缩至 36×36
 - 最多 4 个独立虚拟指针，默认 1 号；其余按需创建
-- 每个指针独立保存坐标、目标窗口和显示期限，互不影响
 - MCP 鼠标/键盘/输入工具新增可选 `pointer` 参数（1–4，默认 1）
 - CLI `input move/click/drag/scroll/key/type/pos` 新增 `--pointer` 参数
-- 2–4 号指针首次使用时从虚拟屏幕中心开始，避免与用户物理光标重叠
-- 状态文件升级为多指针格式，兼容读取 2.0.x 的单指针 `pointer.json`
-- overlay 进程按需创建窗口，支持 `{"id": n, "hide": true}` 隐藏单个游标
-
-## 2.0.1
-
-- 新增 `▣` 虚拟游标，由独立 `oacu overlay` 进程渲染
-- 游标窗口 `WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE`，点击穿透
-- 环境变量 `OACU_NO_OVERLAY=1` 可关闭游标
 
 ## 下载
 
-- `OpenAgentCU-2.1.0-Setup.exe`：Windows 安装版（Program Files，需管理员确认 UAC）
-- `OpenAgentCU-2.1.0-portable.zip`：便携版，解压即用
-- `OpenAgentCU-2.1.0-source.zip`：完整源代码
+- `OpenAgentCU-2.2.0-Setup.exe`：Windows 安装版（Program Files，需管理员确认 UAC）
+- `OpenAgentCU-2.2.0-portable.zip`：便携版，解压即用
+- `OpenAgentCU-2.2.0-source.zip`：完整源代码
 
 安装包未做代码签名，SmartScreen 可能提示“未知发布者”。
 
 ## 亮点
 - 基于 Windows UI Automation 的桌面感知与元素 token 化
-- MCP stdio 服务（18 个工具），可被 Chatbox/Claude 等客户端调用
+- MCP stdio 服务（19 个工具），可被 Chatbox/Claude 等客户端调用
+- **操作链**：模型先写 6–12 步，OpenCU 整链校验后批量执行，结果按步返回
 - **虚拟指针**：不移动系统光标、不注入全局键鼠；UIA pattern + 定向窗口消息
 - 虚拟鼠标：移动/点击/双击/右键/拖拽/滚轮，附带 `▣` 虚拟游标
 - 最多 4 个独立虚拟游标（默认 1 个），每个可独立定位和计时
@@ -59,12 +66,13 @@
 ## 已知限制
 - `Ctrl+Alt+Delete` 属于 Windows 安全注意序列，普通程序无法模拟。
 - UIA 对部分应用（如某些 Electron/游戏/视频播放器）暴露的控件有限；播放/暂停状态可能无法读取。
-- 自然语言规划器是规则匹配，不调用 LLM；复杂指令建议使用原子键鼠工具组合。
+- 自然语言规划器是规则匹配，不调用 LLM；复杂指令建议使用操作链或原子键鼠工具组合。
+- 操作链在 MCP 中同步执行；不同指针的链状态独立，但当前传输层一次只处理一条链。
 
 ## 验证
 
-- 145 个单元测试
-- CLI 冒烟 9/9
+- 159 个单元测试
+- CLI 冒烟 10/10
 - 端到端 12/12
 - MCP 协议 4/4
 - GUI 自检 5/5

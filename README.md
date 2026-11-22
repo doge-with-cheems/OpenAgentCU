@@ -8,7 +8,7 @@ IR，交给本地解释器按序操作 UI Automation 元素。默认使用**虚�
 
 零第三方 Python 依赖：UIA 通过 PowerShell 5.1 的
 `System.Windows.Automation` 访问，存储用标准库 `sqlite3`，通信用 `socket`。
-**当前版本 2.1.0：默认虚拟指针（▣），支持最多 4 个独立虚拟指针。**
+**当前版本 2.2.0：新增操作链批量执行，默认虚拟指针（▣）。**
 
 ## 下载
 > 支持 Windows 10/11 x64，不需要单独安装 Python。
@@ -16,7 +16,8 @@ IR，交给本地解释器按序操作 UI Automation 元素。默认使用**虚�
 ## 能力概览
 
 - 桌面 UIA 采集 → 去噪 → 阅读顺序 → 紧凑 token 表
-- MCP stdio 服务：`desktop_scan/tokens/find/summary`、`computer_act`
+- MCP stdio 服务：`desktop_scan/tokens/find/summary`、`computer_act`、`chain_run`
+- 操作链：模型先写 6–12 步，OpenCU 整链校验后批量执行；每条链绑定一个虚拟指针
 - 虚拟指针：移动、点击、双击、右键、拖拽、滚轮（系统光标不动）
 - 最多 4 个独立虚拟指针，默认只使用 1 个；游标面积较 2.0.1 缩小 50%（36×36）
 - 键盘：UIA ValuePattern / 定向 `WM_CHAR` / `WM_KEYDOWN`，不注入全局键鼠
@@ -73,6 +74,7 @@ MCP 客户端配置示例：
 | `search_web` | 打开 Google/Bing/YouTube 搜索结果（零扫描） |
 | `win_run` | 虚拟 Win+R 替代：ShellExecute 启动应用/路径/URL（零扫描） |
 | `computer_act` | 单轮：计划 → IR → 虚拟执行（默认只回状态，`verbose=true` 才回计划/IR） |
+| `chain_run` | 批量执行预先写好的操作链；整链预检、逐级紧凑结果、`pointer` 绑定、`chain_id` 幂等 |
 | `mouse_move` | 移动虚拟指针（系统光标不动），可选 `pointer` 1–4 |
 | `mouse_click` | 定向消息点击（UIA pattern / 窗口消息），可选 `pointer` 1–4 |
 | `mouse_drag` | 虚拟拖拽（系统光标不动），可选 `pointer` 1–4 |
@@ -85,6 +87,48 @@ MCP 客户端配置示例：
 
 所有鼠标/键盘/输入工具都支持可选 `pointer`（1–4，默认 1）；CLI 对应参数为
 `--pointer`，例如 `oacu input move --x 800 --y 400 --pointer 2`。
+
+
+## 操作链（chain）
+
+模型先写一条完整的操作链，再交给 OpenCU **整链校验、批量执行**。默认建议
+6–12 步（最多 32 步），每条链绑定一个虚拟指针；1–4 号指针各自拥有独立的
+坐标、目标窗口和操作链状态，默认仍只使用 1 号。
+
+```json
+{
+  "version": 1,
+  "pointer": 2,
+  "chain_id": "login-001",
+  "steps": [
+    {"op": "click", "x": 420, "y": 260},
+    {"op": "type", "text": "hello"},
+    {"op": "wait", "ms": 300},
+    {"op": "key", "keys": "enter"},
+    {"op": "scroll", "direction": "down", "times": 2},
+    {"op": "move", "x": 600, "y": 400}
+  ]
+}
+```
+
+- 支持 `move/click/drag/scroll/key/type/wait`；`click` 省略 x/y 表示在当前指针位置点击。
+- `scroll` 使用 `direction: up|down|left|right`，避免 `dy` 正负方向歧义。
+- `key`/`type` 之前必须先有 `click` 或 `drag`，确保目标窗口来自本链，而不是上次会话缓存。
+- `type.replace` 默认 `true`（UIA SetValue 可能替换原内容）；需要追加时传 `false`，退回定向 WM_CHAR。
+- 默认 `stop_on_error=true`，失败即停；`--keep-going` / `stop_on_error=false` 可继续，但结果标记 `partial`。
+- `chain_id` 在 120 秒内幂等，重复提交返回上次结果，避免客户端超时重发导致重复点击。
+- `dry_run=true` 只预检并返回计划、预计耗时和警告，不创建虚拟指针、不发送输入。
+- 执行结果包含 `results` 五元组 `[index, op, ok, ms, code]`、`state`、`resume_from`；
+  失败后不要盲目重发整链。
+
+CLI：
+
+```powershell
+oacu chain run tools\chain_demo.json --pointer 2 --dry-run
+oacu chain run tools\chain_demo.json --pointer 2 --chain-id login-001
+```
+
+MCP 对应工具为 `chain_run`，参数 `pointer/steps/stop_on_error/dry_run/timeout_ms/chain_id`。
 
 
 ## 支持的动作
@@ -153,6 +197,7 @@ alt+tab            解析支持，但虚拟模式会拒绝
 - `desktop_scan` 支持 `diff=true`，只返回新增/删除。
 - `launch_app` / `open_url` / `search_web` / `win_run` **完全不扫描桌面**。
 - `computer_act` 默认只回 `{ok,status,steps,results}`；计划/IR 需要 `verbose=true`。
+- `chain_run` 回紧凑文本：头部 + 每步 `index op ok/错误码 耗时`，不含重复的整链 JSON。
 
 实测一个 363 token 的桌面（字符数按 ~3.5 字符/token 估算）：
 
@@ -187,7 +232,8 @@ alt+tab            解析支持，但虚拟模式会拒绝
 
 ```text
 oacu/
-  cli.py            命令行入口（scan/dump/plan/act/exec/serve/mcp/doctor/gui/input）
+  cli.py            命令行入口（scan/dump/plan/act/exec/serve/mcp/doctor/gui/input/chain）
+  chain.py          操作链：整链校验、逐指针执行、紧凑结果、幂等
   gui.py            tkinter 图形外壳（快照 / 指令 / 记录 / MCP / 输入控制）
   input.py          虚拟输入薄封装（转发到 virtual.py）
   virtual.py        虚拟指针：UIA pattern + SetFocus + 定向 WM_* 消息
@@ -209,10 +255,10 @@ oacu/
 tools/
   uia_dump.ps1      桌面树采集（UTF-8 JSON）
   uia_act.ps1       Invoke/Value/Scroll/SetFocus
-  smoke_cli.py      G2：cli 9/9
+  smoke_cli.py      G2：cli 10/10
   flow_check.py     G3：e2e 12/12
   mcp_probe.py      G4：mcp 4/4
   gui_probe.py      图形外壳自检：gui 5/5
-tests/              145 个单元测试（含 GUI 线程交互与输入校验）
+tests/              159 个单元测试（含操作链、GUI 线程交互与输入校验）
 ```
 

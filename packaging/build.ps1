@@ -3,7 +3,7 @@
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
-$version = "2.1.0"
+$version = "2.2.0"
 Set-Location $root
 
 Write-Host "== 1/4 icon =="

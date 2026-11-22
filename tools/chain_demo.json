@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "pointer": 1,
+  "steps": [
+    {"op": "click", "x": 120, "y": 120},
+    {"op": "type", "text": "OpenCU chain demo"},
+    {"op": "wait", "ms": 100},
+    {"op": "key", "keys": "ctrl+a"},
+    {"op": "scroll", "direction": "down", "times": 2},
+    {"op": "move", "x": 240, "y": 240}
+  ]
+}

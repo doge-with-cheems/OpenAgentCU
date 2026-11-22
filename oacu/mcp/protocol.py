@@ -112,6 +112,30 @@ def tool_definitions() -> list[dict[str, Any]]:
             }, required=["instruction"]),
         },
         {
+            "name": "chain_run",
+            "description": (
+                "Execute a prewritten sequential operation chain on one virtual pointer. "
+                "Recommended 6-12 steps (max 32). Every step is validated before any input. "
+                "Ops: move{x,y,duration_ms?}, click{x?,y?,button?,clicks?,interval_ms?}, "
+                "drag{to_x,to_y,from_x?,from_y?,button?,duration_ms?}, "
+                "scroll{direction:up|down|left|right,times?}, key{keys,ms?}, "
+                "type{text,replace?}, wait{ms?}. key/type require an earlier click or drag "
+                "in the same chain. stop_on_error defaults true. Synchronous: do not resend "
+                "a partially executed chain; use resume_from."
+            ),
+            "inputSchema": _schema({
+                "pointer": {"type": "integer", "minimum": 1, "maximum": 4, "default": 1},
+                "steps": {"type": "array", "minItems": 1, "maxItems": 32,
+                          "items": {"type": "object"}},
+                "stop_on_error": {"type": "boolean", "default": True},
+                "dry_run": {"type": "boolean", "default": False},
+                "timeout_ms": {"type": "integer", "minimum": 1000, "maximum": 120000,
+                               "default": 30000},
+                "chain_id": {"type": "string", "maxLength": 64,
+                             "description": "optional idempotency key; repeat returns the previous result"},
+            }, required=["steps"]),
+        },
+        {
             "name": "mouse_move",
             "description": "Move a virtual pointer (system cursor is not moved). pointer=1..4, default 1.",
             "inputSchema": _schema({
@@ -205,6 +229,44 @@ def _text_result(text: str, *, is_error: bool = False) -> dict[str, Any]:
 
 
 def _render_tool_content(name: str, payload: dict[str, Any]) -> str:
+    if name == "chain_run":
+        pointer = payload.get("pointer")
+        if not payload.get("ok") and (
+                payload.get("code") in ("invalid_chain", "invalid_argument", "pointer_busy")
+                or payload.get("errors")):
+            return json.dumps(payload, ensure_ascii=False)
+        if payload.get("dry_run"):
+            lines = [f"chain dry-run p{pointer}: {payload.get('steps')} steps, "
+                     f"est {payload.get('est_ms')}ms"]
+            for index, step in enumerate(payload.get("plan") or []):
+                params = " ".join(f"{key}={value}" for key, value in step.items()
+                                  if key != "op")
+                lines.append(f"{index} {step.get('op')} {params}".rstrip())
+            if payload.get("hint"):
+                lines.append("hint: " + str(payload.get("hint")))
+            return "\n".join(lines)
+        chain_id = payload.get("chain_id") or "-"
+        status = payload.get("status") or ("error" if not payload.get("ok") else "done")
+        header = (f"chain {chain_id} p{pointer}: {payload.get('executed')}/"
+                  f"{payload.get('steps')} steps, {payload.get('elapsed_ms')}ms ({status})")
+        if payload.get("error"):
+            header += f" error={payload.get('error')}"
+        lines = [header]
+        rows = []
+        for item in payload.get("results") or []:
+            index, op, ok, ms, code = (list(item) + [None] * 5)[:5]
+            rows.append(f"{index} {op} {'ok' if ok else (code or 'FAIL')} {ms}ms")
+        if rows:
+            lines.append("results: " + " | ".join(rows))
+        state = payload.get("state")
+        if isinstance(state, dict):
+            lines.append(f"state: x={state.get('x')} y={state.get('y')} "
+                         f"hwnd={state.get('hwnd')}")
+        if payload.get("resume_from") is not None:
+            lines.append(f"resume_from: {payload.get('resume_from')}")
+        if payload.get("hint"):
+            lines.append("hint: " + str(payload.get("hint")))
+        return "\n".join(lines)
     if not payload.get("ok", True):
         return json.dumps(payload, ensure_ascii=False)
     if name == "desktop_scan":
@@ -401,6 +463,47 @@ def _tool_computer_act(arguments: dict[str, Any], store: Store, settings: Settin
     return compact
 
 
+def _tool_chain_run(arguments: dict[str, Any], store: Store, settings: Settings) -> dict[str, Any]:
+    from ..agent import new_trace_id
+    from ..chain import DEFAULT_TIMEOUT_MS, run_chain
+
+    pointer = _pointer(arguments)
+    steps = arguments.get("steps")
+    allowed = {"pointer", "steps", "stop_on_error", "dry_run", "timeout_ms", "chain_id"}
+    unknown = sorted(set(arguments) - allowed)
+    if unknown:
+        return {"ok": False, "code": "invalid_argument",
+                "error": f"未知参数: {', '.join(unknown)}", "executed": 0,
+                "retry_safe": True}
+    trace_id = new_trace_id()
+    try:
+        count = len(steps) if isinstance(steps, list) else -1
+        store.record_action(trace_id, f"chain p{pointer}: {count} steps")
+    except Exception:  # noqa: BLE001 - audit must not block execution
+        trace_id = ""
+
+    payload = run_chain(
+        steps,
+        pointer=pointer,
+        stop_on_error=arguments.get("stop_on_error", True),
+        dry_run=arguments.get("dry_run", False),
+        timeout_ms=arguments.get("timeout_ms", DEFAULT_TIMEOUT_MS),
+        chain_id=arguments.get("chain_id"),
+    )
+    if trace_id:
+        payload["chain_id"] = trace_id
+        try:
+            store.update_action(
+                trace_id,
+                status=str(payload.get("status") or ("error" if not payload.get("ok") else "done")),
+                error=payload.get("error"),
+                ir={"pointer": payload.get("pointer"), "steps": steps},
+            )
+        except Exception:  # noqa: BLE001 - audit is best effort
+            pass
+    return payload
+
+
 def _tool_launch_app(arguments: dict[str, Any], store: Store, settings: Settings) -> dict[str, Any]:
     import time
 
@@ -562,6 +665,7 @@ TOOLS = {
     "search_web": _tool_search_web,
     "win_run": _tool_win_run,
     "computer_act": _tool_computer_act,
+    "chain_run": _tool_chain_run,
     "mouse_move": _tool_mouse_move,
     "mouse_click": _tool_mouse_click,
     "mouse_drag": _tool_mouse_drag,

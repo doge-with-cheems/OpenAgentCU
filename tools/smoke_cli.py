@@ -1,4 +1,4 @@
-"""CLI smoke test: prints `cli 9/9` on success."""
+"""CLI smoke test: prints `cli 10/10` on success."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = str(ROOT / "tools" / "fixture_desktop.json")
 WAIT_IR = str(ROOT / "tools" / "wait_ir.json")
+CHAIN = str(ROOT / "tools" / "chain_demo.json")
 
 
 def run(args: list[str], env: dict[str, str]) -> subprocess.CompletedProcess[str]:
@@ -46,9 +47,9 @@ def main() -> int:
         checks.append(("version", proc.returncode == 0 and "oacu" in proc.stdout, proc.stdout.strip()))
 
         proc = run(["--help"], env)
-        commands = ("scan", "dump", "plan", "act", "exec", "serve", "mcp", "doctor")
+        commands = ("scan", "dump", "plan", "act", "exec", "serve", "mcp", "doctor", "chain")
         checks.append(("help", proc.returncode == 0 and all(c in proc.stdout for c in commands),
-                       "8 subcommands"))
+                       "9 subcommands"))
 
         proc = run(["nope"], env)
         checks.append(("unknown", proc.returncode == 2, f"exit={proc.returncode}"))
@@ -87,6 +88,12 @@ def main() -> int:
         checks.append(("exec", proc.returncode == 0 and payload.get("ok") is True
                        and len(payload.get("results", [])) == 2,
                        f"results={len(payload.get('results', []))}"))
+
+        proc = run(["chain", "run", CHAIN, "--dry-run", "--json", "--db", db], env)
+        payload = as_json(proc)
+        checks.append(("chain", proc.returncode == 0 and payload.get("dry_run") is True
+                       and payload.get("steps") == 6,
+                       f"steps={payload.get('steps')} est={payload.get('est_ms')}"))
 
     passed = sum(1 for _, ok, _ in checks if ok)
     print(f"cli {passed}/{len(checks)}")

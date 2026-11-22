@@ -20,10 +20,13 @@ from .virtual import (
     move,
     physical_mouse_position,
     pointer,
+    pointer_lock,
     screen_info,
     scroll,
     type_text,
+    validate_keys,
     validate_point,
+    validate_pointer,
     win_run,
 )
 
@@ -52,9 +55,12 @@ __all__ = [
     "normalize_keys",
     "physical_mouse_position",
     "pointer",
+    "pointer_lock",
     "screen_info",
     "scroll",
     "type_text",
+    "validate_keys",
     "validate_point",
+    "validate_pointer",
     "win_run",
 ]

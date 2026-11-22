@@ -48,10 +48,10 @@ class MCPProtocolTests(unittest.TestCase):
         names = [t["name"] for t in tools]
         for expected in ("desktop_scan", "desktop_tokens", "desktop_find", "desktop_summary",
                          "launch_app", "open_url", "search_web", "win_run",
-                         "computer_act", "mouse_move", "mouse_click", "mouse_drag", "mouse_scroll",
+                         "computer_act", "chain_run", "mouse_move", "mouse_click", "mouse_drag", "mouse_scroll",
                          "key_press", "key_hold", "type_text", "screen_info", "mouse_position"):
             self.assertIn(expected, names)
-        self.assertEqual(len(tool_definitions()), 18)
+        self.assertEqual(len(tool_definitions()), 19)
         self.assertTrue(all("inputSchema" in tool for tool in tools))
 
     def test_pointer_schema(self) -> None:
@@ -82,6 +82,38 @@ class MCPProtocolTests(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["pointer"], 2)
         self.assertIsInstance(payload["x"], int)
+
+    def test_chain_dry_run_tool(self) -> None:
+        steps = [
+            {"op": "click", "x": 100, "y": 100},
+            {"op": "type", "text": "hi"},
+            {"op": "wait", "ms": 10},
+            {"op": "key", "keys": "enter"},
+            {"op": "scroll", "direction": "down", "times": 2},
+            {"op": "move", "x": 200, "y": 200},
+        ]
+        reply = handle({"jsonrpc": "2.0", "id": 23, "method": "tools/call",
+                        "params": {"name": "chain_run",
+                                   "arguments": {"pointer": 2, "steps": steps,
+                                                 "dry_run": True}}},
+                       self.store, self.settings)
+        self.assertFalse(reply["result"]["isError"])
+        text = text_of(reply)
+        self.assertIn("chain dry-run p2: 6 steps", text)
+        self.assertIn("0 click x=100 y=100", text)
+
+    def test_chain_invalid_tool(self) -> None:
+        reply = handle({"jsonrpc": "2.0", "id": 24, "method": "tools/call",
+                        "params": {"name": "chain_run",
+                                   "arguments": {"steps": [
+                                       {"op": "click", "x": 100, "y": 100},
+                                       {"op": "key", "keys": "win+r"},
+                                   ]}}},
+                       self.store, self.settings)
+        self.assertTrue(reply["result"]["isError"])
+        payload = payload_of(reply)
+        self.assertEqual(payload["code"], "invalid_chain")
+        self.assertEqual(payload["executed"], 0)
 
     def test_screen_info_tool(self) -> None:
         reply = handle({"jsonrpc": "2.0", "id": 7, "method": "tools/call",

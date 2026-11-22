@@ -214,10 +214,10 @@ FLOW-RULE: 顺序执行 S1→S15；每步验收通过后勾选 STATUS；判断�
 - 节点: N15 (end)
 - 目标: 作为常驻 MCP 服务待机，收到呼叫后再走 S9
 - 落点: `oacu/mcp/server.py`、`oacu/mcp/protocol.py`
-- 动作: stdio JSON-RPC 2.0：`initialize` 返回 `protocolVersion` 与 `capabilities.tools`；`tools/list` 返回 3 个工具 `desktop_scan`、`desktop_tokens`、`computer_act`；`tools/call` 分发到 S2–S6 / S7 / S8–S14；读 stdin 直到 EOF；每条响应单行 JSON，不污染 stdout
+- 动作: stdio JSON-RPC 2.0：`initialize` 返回 `protocolVersion` 与 `capabilities.tools`；`tools/list` 返回工具定义（含 `desktop_scan`、`desktop_tokens`、`computer_act`、`chain_run`）；`tools/call` 分发到 S2–S6 / S7 / S8–S14；读 stdin 直到 EOF；每条响应单行 JSON，不污染 stdout
 - 输入: MCP 客户端请求
 - 产出: JSON-RPC 响应、工具结果
-- 验收: `python tools/mcp_probe.py` 依次发送 `initialize`、`tools/list`、`tools/call(desktop_tokens)`，收到协议版本与 3 个工具，输出 `mcp 4/4`；EOF 后进程退出码 0
+- 验收: `python tools/mcp_probe.py` 依次发送 `initialize`、`tools/list`、`tools/call(desktop_tokens)`，收到协议版本与工具定义，输出 `mcp 4/4`；EOF 后进程退出码 0
 - 结果: 服务保持待机；每收到一次 `computer_act` 重新进入 S9，直到进程结束
 
 ## 5. 分支与异常
@@ -252,7 +252,7 @@ FLOW-RULE: 顺序执行 S1→S15；每步验收通过后勾选 STATUS；判断�
 
 ### G2 · CLI 冒烟
 - 命令: `python tools/smoke_cli.py`
-- 通过: 输出 `cli 9/9`，退出码 0；`--version/--help/scan --raw/dump/plan/act --dry-run/exec --inproc/mcp --help/doctor` 全部可执行
+- 通过: 输出 `cli 10/10`，退出码 0；`--version/--help/scan --raw/dump/plan/act --dry-run/exec --inproc/chain run --dry-run/mcp --help/doctor` 全部可执行
 - 失败: 回到 S1、S2、S12 检查入口与参数
 
 ### G3 · 端到端（可回放）

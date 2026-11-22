@@ -63,7 +63,7 @@ def main(argv: list[str] | None = None) -> int:
         if len(replies) >= 2:
             tools = replies[1].get("result", {}).get("tools", [])
         expected = {
-            "desktop_scan", "desktop_tokens", "desktop_find", "desktop_summary", "launch_app", "open_url", "search_web", "win_run", "computer_act",
+            "desktop_scan", "desktop_tokens", "desktop_find", "desktop_summary", "launch_app", "open_url", "search_web", "win_run", "computer_act", "chain_run",
             "mouse_move", "mouse_click", "mouse_drag", "mouse_scroll",
             "key_press", "key_hold", "type_text", "screen_info", "mouse_position",
         }

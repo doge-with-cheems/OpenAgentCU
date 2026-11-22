@@ -7,13 +7,14 @@ import json
 import os
 import platform
 import sys
+from pathlib import Path
 from typing import Any
 
 from . import __version__
 from .config import Settings, ensure_dirs, home_dir, settings_from_args
 from .errors import OacuError
 
-COMMANDS = ("scan", "dump", "plan", "act", "exec", "serve", "mcp", "doctor", "gui", "input")
+COMMANDS = ("scan", "dump", "plan", "act", "exec", "serve", "mcp", "doctor", "gui", "input", "chain")
 
 
 def _add_common(parser: argparse.ArgumentParser, *, suppress: bool = True) -> None:
@@ -172,6 +173,25 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_screen = input_sub.add_parser("screen", parents=[common], help="print the virtual screen bounds")
     p_screen.set_defaults(func=cmd_input)
+
+    p_chain = sub.add_parser("chain", parents=[common], help="run a batch operation chain")
+    chain_sub = p_chain.add_subparsers(dest="chain_action", metavar="<action>")
+    p_chain.set_defaults(func=cmd_chain)
+    p_chain_run = chain_sub.add_parser("run", parents=[common],
+                                       help="validate and execute a chain file")
+    p_chain_run.add_argument("file", help="JSON chain file, or - for stdin")
+    p_chain_run.add_argument("--pointer", type=int, default=None, metavar="1-4",
+                             help="virtual pointer id (default: file value or 1)")
+    p_chain_run.add_argument("--dry-run", action="store_true",
+                             help="validate and print the plan without input")
+    chain_mode = p_chain_run.add_mutually_exclusive_group()
+    chain_mode.add_argument("--stop-on-error", dest="stop_on_error",
+                            action="store_true", default=True)
+    chain_mode.add_argument("--keep-going", dest="stop_on_error", action="store_false")
+    p_chain_run.add_argument("--timeout-ms", type=int, default=30000)
+    p_chain_run.add_argument("--chain-id", default=None, metavar="ID",
+                             help="idempotency key; repeating returns the previous result")
+    p_chain_run.set_defaults(func=cmd_chain)
 
     return parser
 
@@ -550,6 +570,59 @@ def cmd_input(args: argparse.Namespace, settings: Settings) -> int:
     payload = {"ok": True, **payload, "text": summary}
     _emit(settings, payload)
     return 0
+
+
+def cmd_chain(args: argparse.Namespace, settings: Settings) -> int:
+    from .chain import DEFAULT_TIMEOUT_MS, run_chain
+    from .errors import UsageError
+
+    if args.chain_action != "run":
+        raise UsageError("缺少 chain 子命令，例如: oacu chain run chain.json")
+    try:
+        raw = (sys.stdin.read() if args.file == "-"
+               else Path(args.file).read_text(encoding="utf-8-sig"))
+        document = json.loads(raw.lstrip("\ufeff"))
+    except (OSError, ValueError) as exc:
+        raise UsageError(f"无法读取操作链: {exc}") from exc
+
+    file_pointer = None
+    if isinstance(document, dict):
+        steps = document.get("steps")
+        file_pointer = document.get("pointer")
+    else:
+        steps = document
+    pointer = args.pointer
+    if pointer is None:
+        pointer = file_pointer if isinstance(file_pointer, int) else 1
+
+    timeout_ms = args.timeout_ms if args.timeout_ms else DEFAULT_TIMEOUT_MS
+    payload = run_chain(
+        steps,
+        pointer=pointer,
+        stop_on_error=args.stop_on_error,
+        dry_run=args.dry_run,
+        timeout_ms=timeout_ms,
+        chain_id=args.chain_id,
+    )
+    if not payload.get("ok"):
+        summary = f"chain p{payload.get('pointer')} failed: {payload.get('code') or payload.get('error')}"
+    elif payload.get("dry_run"):
+        lines = [f"chain dry-run p{payload.get('pointer')}: {payload.get('steps')} steps, "
+                 f"est {payload.get('est_ms')}ms"]
+        for index, step in enumerate(payload.get("plan") or []):
+            params = " ".join(f"{key}={value}" for key, value in step.items()
+                              if key != "op")
+            lines.append(f"{index} {step.get('op')} {params}".rstrip())
+        if payload.get("hint"):
+            lines.append("hint: " + str(payload.get("hint")))
+        summary = "\n".join(lines)
+    else:
+        summary = (f"chain p{payload.get('pointer')}: {payload.get('executed')}/"
+                   f"{payload.get('steps')} steps ({payload.get('status')})")
+    _emit(settings, {**payload, "text": summary})
+    if payload.get("ok"):
+        return 0
+    return 2 if payload.get("code") == "invalid_chain" else 1
 
 
 def cmd_overlay(args: argparse.Namespace, settings: Settings) -> int:
