@@ -462,7 +462,8 @@ def run_chain(
     if status == "done":
         payload["hint"] = (hint + "；" if hint else "") + "用 desktop_scan(diff=true) 或截图验证结果"
     elif executed:
-        payload["hint"] = "不要重发已成功的步骤；检查 failure 后从 resume_from 继续"
+        payload["hint"] = ("不要重发整链；若剩余步骤以 key/type 开头，"
+                           "先补 click/drag 重新绑定目标窗口，再重发剩余步骤")
     if chain_id:
         _cache_put(chain_id, payload)
     return payload

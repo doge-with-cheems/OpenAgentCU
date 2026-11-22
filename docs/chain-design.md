@@ -78,7 +78,9 @@ oacu/cli.py          oacu chain run
 - `stop_on_error=false`：继续执行，`status=partial`，`ok=false`。
 - 定向消息投递失败（`delivered=false`）计为 `post_failed`，不把调用成功当业务成功。
 - 链级超时（默认 30s）在每步前检查，超时返回 `timeout` 和 `resume_from`。
-- 失败后不要重发整链；用 `resume_from` 和 `results` 决定补救动作。
+- 失败后不要重发整链；用 `resume_from` 和 `results` 决定补救动作。若剩余步骤以
+  `key`/`type` 开头，必须补一个 `click`/`drag` 重新绑定目标窗口，否则会因
+  `no_target` 被预检拒绝。
 - `retry_safe=false` 表示链可能已经产生副作用；只有预检失败（`executed=0`）才是安全的。
 
 ## 幂等
