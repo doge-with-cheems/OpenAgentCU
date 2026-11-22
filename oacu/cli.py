@@ -191,6 +191,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_chain_run.add_argument("--timeout-ms", type=int, default=30000)
     p_chain_run.add_argument("--chain-id", default=None, metavar="ID",
                              help="idempotency key; repeating returns the previous result")
+    p_chain_run.add_argument("--no-esc-cancel", dest="cancel_on_esc",
+                             action="store_false", default=True,
+                             help="do not cancel the chain when Esc is pressed")
     p_chain_run.set_defaults(func=cmd_chain)
 
     return parser
@@ -603,8 +606,12 @@ def cmd_chain(args: argparse.Namespace, settings: Settings) -> int:
         dry_run=args.dry_run,
         timeout_ms=timeout_ms,
         chain_id=args.chain_id,
+        cancel_on_esc=args.cancel_on_esc,
     )
-    if not payload.get("ok"):
+    if payload.get("status") == "cancelled":
+        summary = (f"chain p{payload.get('pointer')} cancelled at "
+                   f"{payload.get('resume_from')}")
+    elif not payload.get("ok"):
         summary = f"chain p{payload.get('pointer')} failed: {payload.get('code') or payload.get('error')}"
     elif payload.get("dry_run"):
         lines = [f"chain dry-run p{payload.get('pointer')}: {payload.get('steps')} steps, "

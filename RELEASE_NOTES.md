@@ -15,6 +15,7 @@
 - `key`/`type` 要求链内先有 `click`/`drag`，避免把按键发到上次会话缓存的窗口
 - `scroll` 使用 `direction`，消除 dy 正负方向歧义；`type.replace=false` 可追加
 - 默认 `stop_on_error=true`；`dry_run` 只返回计划/预计耗时，不创建虚拟指针
+- 执行期间按 **Esc** 在下一步边界取消（全局观察、不拦截按键）；可用 `cancel_on_esc=false` / `--no-esc-cancel` 关闭
 - 每指针独立锁；链级超时（默认 30s）；返回 `results/state/resume_from/partial`
 - `chain_id` 120 秒幂等，避免客户端超时重发导致重复点击
 - 定向消息投递失败（`delivered=false`）计为步骤失败，不再“假成功”
@@ -68,10 +69,12 @@
 - UIA 对部分应用（如某些 Electron/游戏/视频播放器）暴露的控件有限；播放/暂停状态可能无法读取。
 - 自然语言规划器是规则匹配，不调用 LLM；复杂指令建议使用操作链或原子键鼠工具组合。
 - 操作链在 MCP 中同步执行；不同指针的链状态独立，但当前传输层一次只处理一条链。
+- 操作链执行期间的 Esc 取消是全局观察；在任意应用按 Esc 都会取消当前链，可用
+  `cancel_on_esc=false` / `--no-esc-cancel` 关闭。
 
 ## 验证
 
-- 159 个单元测试
+- 162 个单元测试
 - CLI 冒烟 10/10
 - 端到端 12/12
 - MCP 协议 4/4

@@ -1,6 +1,9 @@
+import threading
+import time
 import unittest
+from unittest.mock import patch
 
-from oacu.chain import MAX_STEPS, run_chain
+from oacu.chain import MAX_STEPS, _EscWatcher, run_chain
 
 
 class FakePointer:
@@ -221,6 +224,56 @@ class ChainTests(unittest.TestCase):
         self.assertTrue(first["ok"])
         self.assertTrue(second["duplicate"])
         self.assertEqual(len(runtime.pointers[1].calls), calls)
+
+    def test_cancel_before_start_executes_nothing(self) -> None:
+        runtime = FakeRuntime()
+        cancel = threading.Event()
+        cancel.set()
+        payload = run_chain(
+            steps({"op": "click", "x": 100, "y": 100}),
+            cancel_event=cancel,
+            cancel_on_esc=False,
+            runtime=runtime,
+        )
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["status"], "cancelled")
+        self.assertTrue(payload["cancelled"])
+        self.assertEqual(payload["executed"], 0)
+        self.assertTrue(payload["retry_safe"])
+        self.assertEqual(runtime.pointer_calls, [])
+
+    def test_cancel_during_wait(self) -> None:
+        runtime = FakeRuntime()
+        cancel = threading.Event()
+
+        def trigger() -> None:
+            time.sleep(0.05)
+            cancel.set()
+
+        threading.Thread(target=trigger, daemon=True).start()
+        payload = run_chain(
+            steps(
+                {"op": "click", "x": 100, "y": 100},
+                {"op": "wait", "ms": 5000},
+                {"op": "wait", "ms": 1},
+            ),
+            cancel_event=cancel,
+            cancel_on_esc=False,
+            runtime=runtime,
+        )
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["status"], "cancelled")
+        self.assertEqual(payload["executed"], 2)
+        self.assertTrue(payload["results"][0][2])
+        self.assertFalse(payload["results"][1][2])
+        self.assertEqual(payload["results"][1][4], "cancelled")
+        self.assertEqual(payload["resume_from"], 1)
+
+    def test_esc_watcher_detects_key_state(self) -> None:
+        with patch("oacu.chain.ctypes.windll.user32.GetAsyncKeyState",
+                   return_value=0x8000):
+            with _EscWatcher() as event:
+                self.assertTrue(event.is_set())
 
     def test_too_many_steps_rejected(self) -> None:
         runtime = FakeRuntime()

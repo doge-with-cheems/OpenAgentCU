@@ -7,6 +7,9 @@ desktop, then executes the chain sequentially against one virtual pointer.
 
 from __future__ import annotations
 
+import ctypes
+import sys
+import threading
 import time
 from typing import Any
 
@@ -32,6 +35,48 @@ RECENT_TTL_S = 120.0
 RECENT_MAX = 16
 
 _RECENT: dict[str, tuple[float, dict[str, Any]]] = {}
+VK_ESCAPE = 0x1B
+
+
+class _EscWatcher:
+    """Observe the physical Esc key without consuming it or installing a hook."""
+
+    def __init__(self) -> None:
+        self.event = threading.Event()
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def __enter__(self) -> threading.Event:
+        if sys.platform == "win32":
+            if ctypes.windll.user32.GetAsyncKeyState(VK_ESCAPE) & 0x8000:
+                self.event.set()
+            self._thread = threading.Thread(target=self._watch, daemon=True)
+            self._thread.start()
+        return self.event
+
+    def __exit__(self, *_exc: object) -> None:
+        self._stop.set()
+
+    def _watch(self) -> None:
+        user32 = ctypes.windll.user32
+        while not self._stop.is_set():
+            if user32.GetAsyncKeyState(VK_ESCAPE) & 0x8000:
+                self.event.set()
+                return
+            self._stop.wait(0.03)
+
+
+def _wait(ms: int, cancel: threading.Event | None) -> bool:
+    """Sleep in small slices so Esc can stop a long wait. Returns cancelled."""
+    deadline = time.monotonic() + max(0, ms) / 1000.0
+    while True:
+        if cancel is not None and cancel.is_set():
+            return True
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        time.sleep(min(0.05, remaining))
+
 
 
 def _cache_get(chain_id: str) -> dict[str, Any] | None:
@@ -285,7 +330,8 @@ def validate_chain(
     return normalized, warnings, hint, estimated
 
 
-def _execute(vp: Any, step: dict[str, Any]) -> dict[str, Any]:
+def _execute(vp: Any, step: dict[str, Any],
+             cancel: threading.Event | None = None) -> dict[str, Any]:
     op = step["op"]
     if op == "move":
         vp.move(step["x"], step["y"], step["duration_ms"])
@@ -313,7 +359,8 @@ def _execute(vp: Any, step: dict[str, Any]) -> dict[str, Any]:
     if op == "type":
         return vp.type_text(step["text"], step["replace"])
     if op == "wait":
-        time.sleep(step["ms"] / 1000.0)
+        if _wait(step["ms"], cancel):
+            return {"mode": "wait", "cancelled": True}
         return {"mode": "wait"}
     raise ChainStepError("unknown_op", f"不支持的操作: {op}")
 
@@ -326,6 +373,8 @@ def run_chain(
     dry_run: bool = False,
     timeout_ms: int = DEFAULT_TIMEOUT_MS,
     chain_id: str | None = None,
+    cancel_on_esc: bool = True,
+    cancel_event: threading.Event | None = None,
     runtime: Any = None,
 ) -> dict[str, Any]:
     """Validate and execute a chain on one virtual pointer.
@@ -333,6 +382,8 @@ def run_chain(
     Validation errors return ``{"ok": false, "code": "invalid_chain", ...}``
     with ``executed: 0``. Execution errors return per-step results and never
     raise. A caller-supplied ``chain_id`` is idempotent for 120 seconds.
+    While executing, Esc is observed globally (without being consumed) and
+    stops the chain at the next step boundary.
     """
     if chain_id is not None:
         if (not isinstance(chain_id, str) or not chain_id.strip()
@@ -358,6 +409,9 @@ def run_chain(
     if not isinstance(dry_run, bool):
         return {**base, "ok": False, "code": "invalid_argument",
                 "error": "dry_run 必须是布尔值", "executed": 0}
+    if not isinstance(cancel_on_esc, bool):
+        return {**base, "ok": False, "code": "invalid_argument",
+                "error": "cancel_on_esc 必须是布尔值", "executed": 0}
 
     try:
         normalized, warnings, hint, estimated = validate_chain(
@@ -377,57 +431,90 @@ def run_chain(
                 "retry_safe": True}
 
     runtime = runtime or input_mod
-    lock = pointer_lock(pointer_id)
-    if not lock.acquire(blocking=False):
-        return {**base, "ok": False, "code": "pointer_busy",
-                "error": f"虚拟指针 {pointer_id} 正在执行另一条操作链",
-                "executed": 0, "retry_safe": False}
-
-    results: list[list[Any]] = []
-    failures = 0
-    stopped_at: int | None = None
-    status = "done"
-    error_message: str | None = None
-    started = time.perf_counter()
-    deadline = started + timeout_ms / 1000.0
-    vp = None
+    watcher = None
+    cancel = cancel_event
+    if cancel is None and cancel_on_esc:
+        watcher = _EscWatcher()
+        cancel = watcher.__enter__()
     try:
-        vp = runtime.pointer(pointer_id)
-        for index, step in enumerate(normalized):
-            if time.perf_counter() > deadline:
-                status = "timeout"
-                error_message = f"操作链超过 {timeout_ms}ms"
-                break
-            step_started = time.perf_counter()
-            code: str | None = None
-            message: str | None = None
-            try:
-                result = _execute(vp, step)
-                if result.get("delivered") is False:
-                    raise ChainStepError("post_failed",
-                                         "目标窗口未接收定向消息")
-            except ChainStepError as exc:
-                code, message = exc.code, exc.message
-            except VirtualInputError as exc:
-                code, message = "step_error", str(exc)
-            except OacuError as exc:
-                code, message = "step_error", exc.message
-            except Exception as exc:  # noqa: BLE001 - chain must report
-                code, message = "internal", f"{type(exc).__name__}: {exc}"
-            elapsed = int((time.perf_counter() - step_started) * 1000)
-            ok = code is None
-            results.append([index, step["op"], ok, elapsed, code])
-            if not ok:
-                failures += 1
-                stopped_at = index
-                if error_message is None:
-                    error_message = message
-                if stop_on_error:
-                    status = "stopped"
+        if cancel is not None and cancel.is_set():
+            return {**base, "ok": False, "status": "cancelled", "cancelled": True,
+                    "steps": len(normalized), "executed": 0, "retry_safe": True,
+                    "hint": "已取消，未执行任何步骤"}
+
+        lock = pointer_lock(pointer_id)
+        if not lock.acquire(blocking=False):
+            return {**base, "ok": False, "code": "pointer_busy",
+                    "error": f"虚拟指针 {pointer_id} 正在执行另一条操作链",
+                    "executed": 0, "retry_safe": False}
+
+        results: list[list[Any]] = []
+        failures = 0
+        stopped_at: int | None = None
+        cancel_at: int | None = None
+        cancelled = False
+        status = "done"
+        error_message: str | None = None
+        started = time.perf_counter()
+        deadline = started + timeout_ms / 1000.0
+        vp = None
+        try:
+            vp = runtime.pointer(pointer_id)
+            for index, step in enumerate(normalized):
+                if cancel is not None and cancel.is_set():
+                    cancelled = True
+                    cancel_at = index
+                    status = "cancelled"
+                    error_message = "已按 Esc 取消"
                     break
-                status = "partial"
+                if time.perf_counter() > deadline:
+                    status = "timeout"
+                    error_message = f"操作链超过 {timeout_ms}ms"
+                    break
+                step_started = time.perf_counter()
+                code: str | None = None
+                message: str | None = None
+                try:
+                    result = _execute(vp, step, cancel)
+                    if result.get("cancelled"):
+                        raise ChainStepError("cancelled", "已按 Esc 取消")
+                    if result.get("delivered") is False:
+                        raise ChainStepError("post_failed",
+                                             "目标窗口未接收定向消息")
+                except ChainStepError as exc:
+                    code, message = exc.code, exc.message
+                except VirtualInputError as exc:
+                    code, message = "step_error", str(exc)
+                except OacuError as exc:
+                    code, message = "step_error", exc.message
+                except Exception as exc:  # noqa: BLE001 - chain must report
+                    code, message = "internal", f"{type(exc).__name__}: {exc}"
+                elapsed = int((time.perf_counter() - step_started) * 1000)
+                ok = code is None
+                results.append([index, step["op"], ok, elapsed, code])
+                if not ok:
+                    if code == "cancelled":
+                        cancelled = True
+                        cancel_at = index
+                        status = "cancelled"
+                        error_message = message
+                        break
+                    failures += 1
+                    stopped_at = index
+                    if error_message is None:
+                        error_message = message
+                    if stop_on_error:
+                        status = "stopped"
+                        break
+                    status = "partial"
+        except Exception as exc:  # noqa: BLE001 - chain must not raise
+            status = "error"
+            error_message = f"{type(exc).__name__}: {exc}"
+        finally:
+            lock.release()
     finally:
-        lock.release()
+        if watcher is not None:
+            watcher.__exit__()
 
     state = None
     if vp is not None:
@@ -443,14 +530,18 @@ def run_chain(
         "status": status,
         "steps": len(normalized),
         "executed": executed,
-        "partial": bool(failures and status != "stopped"),
+        "partial": bool(executed and (failures or cancelled or status in ("timeout", "error"))),
         "elapsed_ms": int((time.perf_counter() - started) * 1000),
         "results": results,
-        "retry_safe": False,
+        "retry_safe": bool(executed == 0 and status in ("cancelled", "error")),
     }
+    if cancelled:
+        payload["cancelled"] = True
     if stopped_at is not None and executed < len(normalized):
         payload["stopped_at"] = stopped_at
         payload["resume_from"] = stopped_at + 1
+    elif cancel_at is not None:
+        payload["resume_from"] = cancel_at
     elif status == "timeout" and executed < len(normalized):
         payload["resume_from"] = executed
     if error_message:
@@ -459,11 +550,13 @@ def run_chain(
         payload["state"] = state
     if warnings:
         payload["warnings"] = warnings
-    if status == "done":
+    if status == "cancelled":
+        payload["hint"] = "已按 Esc 取消；检查 results 后从 resume_from 继续"
+    elif status == "done":
         payload["hint"] = (hint + "；" if hint else "") + "用 desktop_scan(diff=true) 或截图验证结果"
     elif executed:
         payload["hint"] = ("不要重发整链；若剩余步骤以 key/type 开头，"
                            "先补 click/drag 重新绑定目标窗口，再重发剩余步骤")
-    if chain_id:
+    if chain_id and status != "cancelled":
         _cache_put(chain_id, payload)
     return payload

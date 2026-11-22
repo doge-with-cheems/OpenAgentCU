@@ -133,6 +133,8 @@ def tool_definitions() -> list[dict[str, Any]]:
                                "default": 30000},
                 "chain_id": {"type": "string", "maxLength": 64,
                              "description": "optional idempotency key; repeat returns the previous result"},
+                "cancel_on_esc": {"type": "boolean", "default": True,
+                                  "description": "observe Esc while running and cancel at the next step boundary"},
             }, required=["steps"]),
         },
         {
@@ -469,7 +471,8 @@ def _tool_chain_run(arguments: dict[str, Any], store: Store, settings: Settings)
 
     pointer = _pointer(arguments)
     steps = arguments.get("steps")
-    allowed = {"pointer", "steps", "stop_on_error", "dry_run", "timeout_ms", "chain_id"}
+    allowed = {"pointer", "steps", "stop_on_error", "dry_run", "timeout_ms",
+               "chain_id", "cancel_on_esc"}
     unknown = sorted(set(arguments) - allowed)
     if unknown:
         return {"ok": False, "code": "invalid_argument",
@@ -489,6 +492,7 @@ def _tool_chain_run(arguments: dict[str, Any], store: Store, settings: Settings)
         dry_run=arguments.get("dry_run", False),
         timeout_ms=arguments.get("timeout_ms", DEFAULT_TIMEOUT_MS),
         chain_id=arguments.get("chain_id"),
+        cancel_on_esc=arguments.get("cancel_on_esc", True),
     )
     if trace_id:
         payload["chain_id"] = trace_id

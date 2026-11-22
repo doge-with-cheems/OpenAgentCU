@@ -117,6 +117,8 @@ MCP 客户端配置示例：
 - `type.replace` 默认 `true`（UIA SetValue 可能替换原内容）；需要追加时传 `false`，退回定向 WM_CHAR。
 - 默认 `stop_on_error=true`，失败即停；`--keep-going` / `stop_on_error=false` 可继续，但结果标记 `partial`。
 - `chain_id` 在 120 秒内幂等，重复提交返回上次结果，避免客户端超时重发导致重复点击。
+- 执行期间按 **Esc** 可在下一步边界取消（不会中断正在进行的单步 UIA/窗口消息）；
+  MCP 传 `cancel_on_esc=false` 或 CLI 加 `--no-esc-cancel` 可关闭。
 - `dry_run=true` 只预检并返回计划、预计耗时和警告，不创建虚拟指针、不发送输入。
 - 执行结果包含 `results` 五元组 `[index, op, ok, ms, code]`、`state`、`resume_from`；
   失败后不要盲目重发整链。若剩余步骤以 `key`/`type` 开头，先补一个 `click`/`drag`
@@ -129,7 +131,7 @@ oacu chain run tools\chain_demo.json --pointer 2 --dry-run
 oacu chain run tools\chain_demo.json --pointer 2 --chain-id login-001
 ```
 
-MCP 对应工具为 `chain_run`，参数 `pointer/steps/stop_on_error/dry_run/timeout_ms/chain_id`。
+MCP 对应工具为 `chain_run`，参数 `pointer/steps/stop_on_error/dry_run/timeout_ms/chain_id/cancel_on_esc`。
 
 
 ## 支持的动作
@@ -260,6 +262,6 @@ tools/
   flow_check.py     G3：e2e 12/12
   mcp_probe.py      G4：mcp 4/4
   gui_probe.py      图形外壳自检：gui 5/5
-tests/              159 个单元测试（含操作链、GUI 线程交互与输入校验）
+tests/              162 个单元测试（含操作链、Esc 取消、GUI 线程交互与输入校验）
 ```
 
