@@ -1,4 +1,4 @@
-"""Standalone click-through virtual cursor overlay (▣).
+"""Standalone click-through virtual cursor overlay (Minecraft-style crosshair).
 
 Run as its own process so Tk owns the main thread. The parent (MCP server)
 writes one JSON line per command to stdin:
@@ -23,10 +23,12 @@ from ctypes import wintypes
 
 import ctypes
 
-CURSOR = "▣"
+CURSOR = "crosshair"
 MAX_POINTERS = 4
 SIZE = 36
-FONT_SIZE = 22
+CROSS_HALF = 9
+CROSS_OUTLINE = 5
+CROSS_WIDTH = 2
 COLORKEY = "#ff00ff"
 COLORKEY_REF = 0x00FF00FF
 GWL_EXSTYLE = -20
@@ -96,12 +98,14 @@ def main() -> int:
                            highlightthickness=0)
         canvas.pack()
         center = SIZE // 2
-        font = ("Segoe UI Symbol", FONT_SIZE)
-        for dx, dy in ((-1, -1), (1, -1), (-1, 1), (1, 1),
-                       (-1, 0), (1, 0), (0, -1), (0, 1)):
-            canvas.create_text(center + dx, center + dy, text=CURSOR,
-                               font=font, fill="#ffffff")
-        canvas.create_text(center, center, text=CURSOR, font=font, fill="#0d9488")
+        # Minecraft-style crosshair: white plus with a dark outline.
+        for color, width in (("#111827", CROSS_OUTLINE), ("#ffffff", CROSS_WIDTH)):
+            canvas.create_line(center - CROSS_HALF, center,
+                               center + CROSS_HALF, center,
+                               fill=color, width=width, capstyle="butt")
+            canvas.create_line(center, center - CROSS_HALF,
+                               center, center + CROSS_HALF,
+                               fill=color, width=width, capstyle="butt")
         window.withdraw()
         window.update_idletasks()
 

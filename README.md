@@ -8,7 +8,7 @@ IR，交给本地解释器按序操作 UI Automation 元素。默认使用**虚�
 
 零第三方 Python 依赖：UIA 通过 PowerShell 5.1 的
 `System.Windows.Automation` 访问，存储用标准库 `sqlite3`，通信用 `socket`。
-**当前版本 2.2.0：新增操作链批量执行，默认虚拟指针（▣）。**
+**当前版本 2.2.0：新增操作链批量执行，默认十字准星虚拟指针。**
 
 ## 下载
 > 支持 Windows 10/11 x64，不需要单独安装 Python。
@@ -179,7 +179,7 @@ alt+tab            解析支持，但虚拟模式会拒绝
 
 - 优先使用 UIA pattern（Invoke / SelectionItem / ValuePattern / ScrollPattern）和
   `SetFocus`；没有 pattern 时退回定向窗口消息。
-- 每次操作都会在目标位置显示 **`▣` 虚拟游标**（独立 `oacu overlay` 进程渲染）：
+- 每次操作都会在目标位置显示 **Minecraft 风格十字准星**（独立 `oacu overlay` 进程渲染）：
   置顶、点击穿透、不抢焦点；默认显示约 900ms。
 - 游标窗口为 36×36（2.0.1 的 50%）。最多可同时显示 4 个独立游标，默认只创建
   并使用 1 号；`pointer=2..4` 时按需创建，各自保存位置并独立计时。
@@ -240,7 +240,7 @@ oacu/
   gui.py            tkinter 图形外壳（快照 / 指令 / 记录 / MCP / 输入控制）
   input.py          虚拟输入薄封装（转发到 virtual.py）
   virtual.py        虚拟指针：UIA pattern + SetFocus + 定向 WM_* 消息
-  overlay.py        独立 ▣ 游标进程（置顶、穿透、不抢焦点）
+  overlay.py        独立十字准星 overlay 进程（置顶、穿透、不抢焦点）
   keys.py           按键解析与别名
   config.py         路径与默认值（%APPDATA%/OpenAgentCU）
   models.py         RawElement / Element / Token / Snapshot

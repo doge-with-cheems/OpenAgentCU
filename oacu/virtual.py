@@ -43,7 +43,7 @@ SM_YVIRTUALSCREEN = 77
 SM_CXVIRTUALSCREEN = 78
 SM_CYVIRTUALSCREEN = 79
 
-VIRTUAL_CURSOR = "▣"
+VIRTUAL_CURSOR = "crosshair"
 MAX_POINTERS = 4
 
 GWL_EXSTYLE = -20
@@ -200,7 +200,7 @@ def _focus_window() -> int:
 
 
 class _Overlay:
-    """Click-through ▣ overlay, hosted in a separate main-thread Tk process.
+    """Click-through crosshair overlay, hosted in a separate main-thread Tk process.
 
     One process hosts up to :data:`MAX_POINTERS` independent pointer windows.
     """
