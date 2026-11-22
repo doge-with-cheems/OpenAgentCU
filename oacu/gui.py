@@ -956,7 +956,7 @@ class GuiApp:
         _set_text(text, config)
         self.mcp_text = text
 
-        tk.Label(right, text="工具：desktop_scan · desktop_tokens · computer_act",
+        tk.Label(right, text="工具：desktop_scan · desktop_find · computer_act · chain_run",
                  bg=C["card"], fg=C["muted"], font=(FONT, 8)).pack(anchor="w", padx=14, pady=(0, 10))
 
     def mcp_config(self) -> str:
