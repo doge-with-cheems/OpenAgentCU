@@ -254,6 +254,8 @@ def _render_tool_content(name: str, payload: dict[str, Any]) -> str:
         if payload.get("error"):
             header += f" error={payload.get('error')}"
         lines = [header]
+        if payload.get("stop_conversation"):
+            lines.append("STOP: user pressed Esc; end the current conversation now. Do not call more tools.")
         rows = []
         for item in payload.get("results") or []:
             index, op, ok, ms, code = (list(item) + [None] * 5)[:5]
@@ -458,6 +460,9 @@ def _tool_computer_act(arguments: dict[str, Any], store: Store, settings: Settin
         ]
         if result.get("error"):
             compact["error"] = result.get("error")
+        if result.get("cancelled"):
+            compact["cancelled"] = True
+            compact["stop_conversation"] = True
     if verbose:
         compact["plan"] = result.get("plan")
         compact["ir"] = result.get("ir")

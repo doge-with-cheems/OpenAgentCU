@@ -109,8 +109,10 @@ def run_act(
             if executor is None:
                 if inproc:
                     from .interpreter import execute as execute_ir
+                    from .cancel import TaskScope
 
-                    results = execute_ir(ir, store=store, settings=settings)
+                    with TaskScope():
+                        results = execute_ir(ir, store=store, settings=settings)
                 else:
                     from .transport import send_ir
 
@@ -121,15 +123,23 @@ def run_act(
                 results = executor(ir)
 
             failures = [item for item in results if not item.get("ok")]
-            status = "error" if failures else "ok"
+            cancelled = any(item.get("code") == "cancelled" for item in results)
+            status = "cancelled" if cancelled else ("error" if failures else "ok")
             error = None
-            if failures:
+            if cancelled:
+                error = "任务已取消 (Esc)"
+            elif failures:
                 first = failures[0]
                 error = f"step {first.get('index')} {first.get('op')}: {first.get('error')}"
             store.update_action(trace_id, status=status, error=error,
                                 snapshot_id=context.snapshot_id, plan=plan.to_dict(), ir=ir)
             result.update({"status": status, "results": results, "ok": not failures})
-            if failures:
+            if cancelled:
+                result["cancelled"] = True
+                result["stop_conversation"] = True
+                result["ok"] = False
+                result["error"] = error
+            elif failures:
                 result["error"] = error
             return result
         except (UsageError, NoSnapshot):

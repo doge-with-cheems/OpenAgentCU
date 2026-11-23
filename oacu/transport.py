@@ -18,6 +18,7 @@ Handler = Callable[[dict[str, Any], Store, Settings], dict[str, Any]]
 
 def default_handler(request: dict[str, Any], store: Store, settings: Settings) -> dict[str, Any]:
     from .interpreter import execute
+    from .cancel import TaskScope
 
     if request.get("type") == "ping":
         return {"ok": True, "pong": True}
@@ -30,7 +31,8 @@ def default_handler(request: dict[str, Any], store: Store, settings: Settings) -
         validate_ir(ir)
     except Exception as exc:  # noqa: BLE001 - protocol must answer, not crash
         return {"ok": False, "error": str(exc)}
-    results = execute(ir, store=store, settings=settings)
+    with TaskScope():
+        results = execute(ir, store=store, settings=settings)
     failures = [item for item in results if not item.get("ok")]
     payload: dict[str, Any] = {"ok": not failures, "results": results}
     if failures:

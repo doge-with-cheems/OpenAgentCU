@@ -7,13 +7,12 @@ desktop, then executes the chain sequentially against one virtual pointer.
 
 from __future__ import annotations
 
-import ctypes
-import sys
 import threading
 import time
 from typing import Any
 
 from . import input as input_mod
+from .cancel import CancelToken, TaskScope
 from .errors import OacuError
 from .virtual import (
     VirtualInputError,
@@ -35,47 +34,14 @@ RECENT_TTL_S = 120.0
 RECENT_MAX = 16
 
 _RECENT: dict[str, tuple[float, dict[str, Any]]] = {}
-VK_ESCAPE = 0x1B
 
 
-class _EscWatcher:
-    """Observe the physical Esc key without consuming it or installing a hook."""
-
-    def __init__(self) -> None:
-        self.event = threading.Event()
-        self._stop = threading.Event()
-        self._thread: threading.Thread | None = None
-
-    def __enter__(self) -> threading.Event:
-        if sys.platform == "win32":
-            if ctypes.windll.user32.GetAsyncKeyState(VK_ESCAPE) & 0x8000:
-                self.event.set()
-            self._thread = threading.Thread(target=self._watch, daemon=True)
-            self._thread.start()
-        return self.event
-
-    def __exit__(self, *_exc: object) -> None:
-        self._stop.set()
-
-    def _watch(self) -> None:
-        user32 = ctypes.windll.user32
-        while not self._stop.is_set():
-            if user32.GetAsyncKeyState(VK_ESCAPE) & 0x8000:
-                self.event.set()
-                return
-            self._stop.wait(0.03)
-
-
-def _wait(ms: int, cancel: threading.Event | None) -> bool:
+def _wait(ms: int, cancel: CancelToken | None) -> bool:
     """Sleep in small slices so Esc can stop a long wait. Returns cancelled."""
-    deadline = time.monotonic() + max(0, ms) / 1000.0
-    while True:
-        if cancel is not None and cancel.is_set():
-            return True
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            return False
-        time.sleep(min(0.05, remaining))
+    if cancel is not None:
+        return cancel.sleep(max(0, ms) / 1000.0)
+    time.sleep(max(0, ms) / 1000.0)
+    return False
 
 
 
@@ -331,7 +297,7 @@ def validate_chain(
 
 
 def _execute(vp: Any, step: dict[str, Any],
-             cancel: threading.Event | None = None) -> dict[str, Any]:
+             cancel: CancelToken | None = None) -> dict[str, Any]:
     op = step["op"]
     if op == "move":
         vp.move(step["x"], step["y"], step["duration_ms"])
@@ -431,16 +397,12 @@ def run_chain(
                 "retry_safe": True}
 
     runtime = runtime or input_mod
-    watcher = None
-    cancel = cancel_event
-    if cancel is None and cancel_on_esc:
-        watcher = _EscWatcher()
-        cancel = watcher.__enter__()
-    try:
-        if cancel is not None and cancel.is_set():
+    with TaskScope(cancel_on_esc=cancel_on_esc, event=cancel_event) as token:
+        if token.is_set():
             return {**base, "ok": False, "status": "cancelled", "cancelled": True,
+                    "stop_conversation": True,
                     "steps": len(normalized), "executed": 0, "retry_safe": True,
-                    "hint": "已取消，未执行任何步骤"}
+                    "hint": "用户按 Esc 终止：立即结束当前对话，不要再调用工具或重试"}
 
         lock = pointer_lock(pointer_id)
         if not lock.acquire(blocking=False):
@@ -461,7 +423,7 @@ def run_chain(
         try:
             vp = runtime.pointer(pointer_id)
             for index, step in enumerate(normalized):
-                if cancel is not None and cancel.is_set():
+                if token.is_set():
                     cancelled = True
                     cancel_at = index
                     status = "cancelled"
@@ -475,7 +437,7 @@ def run_chain(
                 code: str | None = None
                 message: str | None = None
                 try:
-                    result = _execute(vp, step, cancel)
+                    result = _execute(vp, step, token)
                     if result.get("cancelled"):
                         raise ChainStepError("cancelled", "已按 Esc 取消")
                     if result.get("delivered") is False:
@@ -512,9 +474,6 @@ def run_chain(
             error_message = f"{type(exc).__name__}: {exc}"
         finally:
             lock.release()
-    finally:
-        if watcher is not None:
-            watcher.__exit__()
 
     state = None
     if vp is not None:
@@ -537,6 +496,7 @@ def run_chain(
     }
     if cancelled:
         payload["cancelled"] = True
+        payload["stop_conversation"] = True
     if stopped_at is not None and executed < len(normalized):
         payload["stopped_at"] = stopped_at
         payload["resume_from"] = stopped_at + 1
@@ -551,7 +511,7 @@ def run_chain(
     if warnings:
         payload["warnings"] = warnings
     if status == "cancelled":
-        payload["hint"] = "已按 Esc 取消；检查 results 后从 resume_from 继续"
+        payload["hint"] = "用户按 Esc 终止：立即结束当前对话，不要再调用工具或重试"
     elif status == "done":
         payload["hint"] = (hint + "；" if hint else "") + "用 desktop_scan(diff=true) 或截图验证结果"
     elif executed:

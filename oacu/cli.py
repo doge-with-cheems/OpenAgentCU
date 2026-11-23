@@ -385,6 +385,8 @@ def cmd_act(args: argparse.Namespace, settings: Settings) -> int:
             for item in result.get("results", []):
                 mark = "ok" if item.get("ok") else "FAIL"
                 print(f"  [{mark}] {item.get('index')}. {item.get('op')} ({item.get('ms')} ms)")
+    if result.get("status") == "cancelled":
+        return 130
     return 0 if result.get("ok") else 1
 
 
@@ -398,7 +400,10 @@ def cmd_exec(args: argparse.Namespace, settings: Settings) -> int:
     if args.inproc:
         store = Store(settings.db)
         try:
-            results = execute(ir, store=store, settings=settings)
+            from .cancel import TaskScope
+
+            with TaskScope():
+                results = execute(ir, store=store, settings=settings)
         finally:
             store.close()
     else:
@@ -409,11 +414,15 @@ def cmd_exec(args: argparse.Namespace, settings: Settings) -> int:
             timeout=settings.timeout,
         )
     failures = [item for item in results if not item.get("ok")]
+    cancelled = any(item.get("code") == "cancelled" for item in results)
     payload = {
         "ok": not failures,
+        "status": "cancelled" if cancelled else ("error" if failures else "ok"),
         "trace_id": ir.get("trace_id"),
         "results": results,
     }
+    if cancelled:
+        payload["cancelled"] = True
     if not settings.json:
         payload["text"] = "\n".join(
             f"{'ok' if item.get('ok') else 'FAIL'} {item.get('index')}. {item.get('op')} ({item.get('ms')} ms)"
@@ -421,6 +430,8 @@ def cmd_exec(args: argparse.Namespace, settings: Settings) -> int:
             for item in results
         )
     _emit(settings, payload)
+    if cancelled:
+        return 130
     return 0 if not failures else 1
 
 

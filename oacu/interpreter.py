@@ -17,6 +17,7 @@ from .config import Settings
 from .models import Token
 from .keys import parse_keys
 from .store import Store
+from .cancel import TaskCancelled, check as cancel_check, sleep as cancel_sleep
 
 TOOLS_DIR = Path(__file__).resolve().parents[1] / "tools"
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -217,7 +218,7 @@ def default_backends(settings: Settings | None = None) -> Backends:
         mouse=_mouse,
         key=_send_keys,
         pattern=_run_uia_act,
-        sleep=time.sleep,
+        sleep=cancel_sleep,
         clock=time.perf_counter,
         type_text=_send_text,
         launch=_launch,
@@ -278,14 +279,23 @@ def execute(
     for index, step in steps:
         op = str(step.get("op"))
         at = int(step.get("at", 0))
+        try:
+            cancel_check()
+        except TaskCancelled as exc:
+            results.append({"index": index, "op": op, "ok": False, "ms": 0,
+                            "at": at, "error": str(exc), "code": "cancelled"})
+            break
         delay = start_all + at / 1000.0 - backends.clock()
         if delay > 0:
             backends.sleep(delay)
+            cancel_check()
         step_start = backends.clock()
         try:
+            cancel_check()
             token = _resolve(step, store, int(ir.get("snapshot_id", 0)))
             if op == "wait":
                 backends.sleep(int(step.get("ms", 0)) / 1000.0)
+                cancel_check()
             elif op in ("click", "double_click", "right_click"):
                 used_pattern = False
                 if op == "click" and token is not None:
@@ -337,6 +347,13 @@ def execute(
                 "index": index, "op": op, "ok": True,
                 "ms": round(elapsed * 1000, 1), "at": at,
             })
+        except TaskCancelled as exc:
+            results.append({
+                "index": index, "op": op, "ok": False,
+                "ms": round((backends.clock() - step_start) * 1000, 1), "at": at,
+                "error": str(exc), "code": "cancelled",
+            })
+            break
         except StepError as exc:
             results.append({
                 "index": index, "op": op, "ok": False,
