@@ -266,6 +266,9 @@ tools/
   flow_check.py     G3：e2e 12/12
   mcp_probe.py      G4：mcp 4/4
   gui_probe.py      图形外壳自检：gui 5/5
+docs/
+  chain-design.md   操作链设计、失败语义与限额
+  stages/           各阶段工程任务与文件改动记录
 tests/              166 个单元测试（含操作链、Esc 取消、GUI 线程交互与输入校验）
 ```
 
